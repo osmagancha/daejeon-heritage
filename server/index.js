@@ -138,11 +138,20 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
-server.listen(PORT, () => {
-  console.log('');
-  console.log('  대전 문화유산 투어  ─  한밭기행');
-  console.log('  ────────────────────────────────');
-  console.log(`  ▶  http://localhost:${PORT}`);
-  console.log('  종료하려면 Ctrl+C');
-  console.log('');
-});
+const db = require('./db');
+
+db.init()
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log('');
+      console.log('  대전 문화유산 투어  ─  한밭기행');
+      console.log('  ────────────────────────────────');
+      console.log(`  ▶  http://localhost:${PORT}`);
+      console.log('  종료하려면 Ctrl+C');
+      console.log('');
+    });
+  })
+  .catch((e) => {
+    console.error('[서버] 저장소를 열지 못해 시작하지 못했습니다:', e.message);
+    process.exit(1);
+  });

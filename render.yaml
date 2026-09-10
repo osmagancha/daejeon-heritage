@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: free
     region: singapore          # 한국에서 가장 가까운 무료 지역
-    buildCommand: echo "의존성이 없어 빌드 단계가 필요하지 않습니다"
+    buildCommand: npm install --omit=dev
     startCommand: node server/index.js
     healthCheckPath: /api/notices
     autoDeployTrigger: commit
@@ -16,4 +16,8 @@ services:
       # 구글 로그인을 쓰려면 Render 대시보드에서 값을 넣으세요.
       # (클라이언트 ID 는 공개되는 값이지만 저장소에는 두지 않습니다)
       - key: GOOGLE_CLIENT_ID
+        sync: false
+      # 데이터를 계속 남기려면 PostgreSQL 접속 문자열을 넣으세요.
+      # (비어 있으면 임시 파일에 저장되어 재배포 시 사라집니다)
+      - key: DATABASE_URL
         sync: false
