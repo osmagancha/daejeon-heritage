@@ -3,7 +3,9 @@
 /**
  * Vercel 서버리스 함수 진입점.
  *
- * /api/* 로 오는 요청만 여기로 온다 (정적 파일은 public/ 이 그대로 나간다).
+ * vercel.json 의 rewrite 가 /api/* 를 전부 이리로 보낸다.
+ * 원래 경로는 쿼리(__p)로 함께 넘어온다 — rewrite 뒤에는 req.url 이
+ * 목적지 주소로 바뀌어 있을 수 있어서, 경로를 추측하지 않고 받아 쓴다.
  * 실제 처리는 server/api.js 가 하고, 이 파일은 요청/응답 모양만 맞춘다.
  *
  * 서버리스는 인스턴스가 여러 개 뜰 수 있으므로 저장소는 반드시
@@ -44,7 +46,9 @@ module.exports = async function handler(req, res) {
     await open();
 
     const url = new URL(req.url, 'http://localhost');
-    const pathname = url.pathname;
+    const forwarded = url.searchParams.get('__p');
+    url.searchParams.delete('__p');
+    const pathname = forwarded ? '/api/' + forwarded.replace(/^\/+/, '') : url.pathname;
 
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
