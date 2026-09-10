@@ -8,3 +8,4 @@ tools/raw/
 public/preview.html
 tools/overpass.json
 server/config.json
+.env

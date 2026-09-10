@@ -445,6 +445,19 @@ on('GET', '/api/leaderboard', () => {
 
 /* ------------------------------------------------------------- dispatcher */
 
+/**
+ * 바깥에서 부르는 진입점.
+ * 저장소가 요청 단위로 최신 상태를 읽고 쓰도록 감싼다.
+ * 로그인 사용자 판별도 그 안에서 해야 최신 세션을 본다.
+ */
+function serve(method, pathname, ctx) {
+  const mutating = method !== 'GET';
+  return db.runRequest(mutating, () => {
+    ctx.user = auth.userFromToken(ctx.token);
+    return handle(method, pathname, ctx);
+  });
+}
+
 function handle(method, pathname, ctx) {
   for (const r of routes) {
     if (r.method !== method) continue;
@@ -457,4 +470,4 @@ function handle(method, pathname, ctx) {
   throw new HttpError(404, '없는 엔드포인트입니다.');
 }
 
-module.exports = { handle, HttpError };
+module.exports = { serve, handle, HttpError };

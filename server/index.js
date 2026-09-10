@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 
-const { handle, HttpError } = require('./api');
+const { serve, HttpError } = require('./api');
 
 const PORT = process.env.PORT || 4173;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -109,18 +109,16 @@ const server = http.createServer(async (req, res) => {
 
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-    const { userFromToken } = require('./auth');
 
     const ctx = {
       token,
-      user: userFromToken(token),
       ua: req.headers['user-agent'] || '',
       ip,
       query: url.parse(req.url, true).query,
       body: ['POST', 'PATCH', 'PUT'].includes(req.method) ? await readBody(req) : {}
     };
 
-    const result = await handle(req.method, pathname, ctx);
+    const result = await serve(req.method, pathname, ctx);
     sendJson(res, 200, result);
   } catch (err) {
     const status = err.status || 500;

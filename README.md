@@ -55,43 +55,61 @@ cp server/config.json.example server/config.json
 > 아티팩트 보안 정책이 구글 스크립트 로드를 막기 때문입니다. 배포판은 이름만
 > 입력하면 바로 시작합니다.
 
-## 실제 서버로 운영하기 (Render 무료 플랜)
+## 실제 서버로 운영하기 (Vercel + Neon, 둘 다 무료)
 
-1. 이 폴더를 GitHub 저장소에 올립니다.
-2. <https://render.com> 가입 후 **New → Blueprint** 를 고르고 저장소를 연결합니다.
-   저장소의 `render.yaml` 을 읽어 서비스가 자동으로 만들어집니다.
-   (Blueprint 대신 **New → Web Service** 를 골라도 됩니다.
-   Build Command 는 비우고 Start Command 만 `node server/index.js`)
-3. 배포가 끝나면 `https://<서비스이름>.onrender.com` 주소가 나옵니다.
+카드 등록 없이 무료로 쓸 수 있는 조합입니다.
 
-**구글 로그인도 쓰려면** 두 곳을 더 손봐야 합니다.
+### 1. 데이터베이스 (Neon)
 
-- Render 대시보드 → Environment → `GOOGLE_CLIENT_ID` 에 클라이언트 ID 입력
-- 구글 클라우드 콘솔 → 해당 OAuth 클라이언트 → **승인된 JavaScript 원본** 에
-  `https://<서비스이름>.onrender.com` 추가 (localhost 항목은 그대로 두면 됩니다)
+<https://neon.com> 에 GitHub 계정으로 가입하고 프로젝트를 만든 뒤
+**Connection string** (`postgresql://...`) 을 복사해 둡니다.
 
-### 데이터가 사라지지 않게 (PostgreSQL 연결)
+서버리스에는 파일을 저장할 곳이 없으므로 이 단계는 **필수**입니다.
 
-Render 무료 플랜은 디스크가 임시라, DB 를 붙이지 않으면 재배포할 때마다
-가입 계정과 스탬프가 사라집니다. 무료 PostgreSQL 을 하나 연결하면 해결됩니다.
+### 2. 배포 (Vercel)
 
-1. <https://neon.com> 에 GitHub 계정으로 가입하고 프로젝트를 만듭니다.
-   (Supabase, Render PostgreSQL 등 다른 곳도 똑같이 됩니다)
-2. **Connection string** 을 복사합니다. `postgresql://...` 로 시작합니다.
-3. Render 대시보드 → Environment → `DATABASE_URL` 에 붙여 넣습니다.
-4. 재배포되면 로그에 `[db] 저장소: PostgreSQL` 이 찍힙니다.
+1. <https://vercel.com> 에 GitHub 계정으로 가입
+2. **Add New → Project** → 이 저장소 선택 → Import
+3. Framework Preset 은 **Other**, 나머지 설정은 그대로 둡니다
+4. **Environment Variables** 에 두 개를 넣습니다
 
-`DATABASE_URL` 이 없으면 자동으로 `data/store.json` 파일에 저장합니다.
-내 PC 에서 개발할 때는 아무 설정 없이 그대로 쓰면 됩니다.
-파일에 데이터가 있는 상태에서 DB 를 처음 붙이면, 기존 내용을 한 번 옮겨 줍니다.
+   | 이름 | 값 |
+   |---|---|
+   | `DATABASE_URL` | Neon 접속 문자열 |
+   | `GOOGLE_CLIENT_ID` | 구글 OAuth 클라이언트 ID (안 쓰면 생략) |
 
-### 무료 플랜에서 알아 둘 점
+5. **Deploy**
 
-| | 내용 |
-|---|---|
-| 잠들기 | 15분간 접속이 없으면 서비스가 잠들고, 다음 접속이 30~50초 걸립니다 |
-| 데이터 | `DATABASE_URL` 을 연결하면 재배포해도 그대로 남습니다 |
-| 규모 | 전체 상태를 한 행에 담는 단순한 구조입니다. 수천 명 규모로 커지면 표를 나눠야 합니다 |
+`public/` 은 정적 파일로 그대로 나가고, `/api/*` 요청만
+`api/[[...path]].js` 함수가 받아 `server/api.js` 로 넘깁니다.
+
+### 3. 구글 로그인 주소 등록
+
+구글 클라우드 콘솔 → 해당 OAuth 클라이언트 → **승인된 JavaScript 원본** 에
+배포된 주소(`https://....vercel.app`)를 추가합니다. localhost 항목은 그대로 둡니다.
+
+### 동시 접속과 데이터 안전
+
+서버리스는 인스턴스가 여러 개 뜰 수 있어, 두 사람이 같은 순간에 기록을 남기면
+한쪽이 덮어써질 수 있습니다. `server/db.js` 는 쓰기 요청마다 PostgreSQL 의
+자문 잠금(advisory lock)을 잡고 최신 상태를 읽어 처리하므로 그런 일이 없습니다.
+읽기 요청은 잠그지 않습니다.
+
+전체 상태를 한 행(JSONB)에 담는 단순한 구조라 학급·학교 규모에는 충분하지만,
+수천 명 규모가 되면 표를 나눠야 합니다.
+
+### 내 PC 에서 개발할 때
+
+`DATABASE_URL` 이 없으면 자동으로 `data/store.json` 파일에 저장하므로
+아무 설정 없이 `npm start` 만 하면 됩니다. Neon 을 붙여서 쓰고 싶으면
+프로젝트 폴더에 `.env` 파일을 만들고 `DATABASE_URL=...` 한 줄을 적으세요
+(`.env` 는 git 에 올라가지 않습니다). 파일에 데이터가 있는 상태에서 DB 를
+처음 붙이면 기존 내용을 한 번 옮겨 줍니다.
+
+### Render 를 쓰고 싶다면
+
+`render.yaml` 이 들어 있어 **New → Blueprint** 로 배포할 수 있습니다.
+다만 2026년 기준 무료 인스턴스에도 카드 등록을 요구합니다.
 
 ## 공유용 배포판 만들기
 
