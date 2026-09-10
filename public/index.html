@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="theme-color" content="#16181c" />
+<title>한밭기행 — 대전 문화유산 투어</title>
+<meta name="description" content="대전의 문화유산 13곳을 지도와 3D로 걷는 인터랙티브 투어. 스탬프를 모으고, 이야기를 듣고, 굿즈로 바꾸세요." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="css/style.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23B8392C'/%3E%3Cpath d='M5 18 L16 9 L27 18 Z' fill='%23F6F1E7'/%3E%3Crect x='9' y='18' width='14' height='7' fill='%23F6F1E7'/%3E%3C/svg%3E" />
+</head>
+<body>
+
+<!-- ══════════════════════════ 스플래시 ══════════════════════════ -->
+<div id="splash" class="splash">
+  <div class="splash-mark">
+    <svg viewBox="0 0 120 90" aria-hidden="true">
+      <path class="s-roof" d="M6 44 C30 16 90 16 114 44 L104 48 C84 26 36 26 16 48 Z" />
+      <rect class="s-base" x="22" y="50" width="76" height="30" rx="2" />
+      <rect class="s-col" x="30" y="50" width="6" height="30" />
+      <rect class="s-col" x="57" y="50" width="6" height="30" />
+      <rect class="s-col" x="84" y="50" width="6" height="30" />
+      <rect class="s-ground" x="14" y="80" width="92" height="5" rx="2" />
+    </svg>
+  </div>
+  <div class="splash-title">한밭기행</div>
+  <div class="splash-sub">대전 문화유산 인터랙티브 투어</div>
+  <div class="splash-bar"><i></i></div>
+</div>
+
+<!-- ══════════════════════════ 지도 ══════════════════════════ -->
+<div id="map" aria-label="대전 문화유산 지도"></div>
+<div class="map-vignette" aria-hidden="true"></div>
+
+<!-- ══════════════════════════ 상단바 ══════════════════════════ -->
+<header class="topbar">
+  <button class="icon-btn menu-btn" id="btn-menu" aria-label="메뉴 열기">
+    <span></span><span></span><span></span>
+  </button>
+
+  <div class="wordmark" id="btn-home" role="button" tabindex="0">
+    <svg class="wm-icon" viewBox="0 0 40 28" aria-hidden="true">
+      <path d="M2 15 C10 5 30 5 38 15 L34 17 C27 9 13 9 6 17 Z" />
+      <rect x="8" y="18" width="24" height="8" rx="1.5" />
+    </svg>
+    <span class="wm-text">한밭기행</span>
+  </div>
+
+  <button class="icon-btn avatar-btn" id="btn-account" aria-label="내 정보">
+    <span class="avatar" id="top-avatar">?</span>
+    <i class="dot" id="account-dot" hidden></i>
+  </button>
+</header>
+
+<!-- 공지 롤링 -->
+<button class="notice" id="notice" aria-live="polite">
+  <span class="notice-text" id="notice-text">불러오는 중…</span>
+  <svg viewBox="0 0 24 24" class="chev" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+</button>
+
+<!-- ══════════════════════════ 우측 레일 ══════════════════════════ -->
+<nav class="rail" aria-label="지도 도구">
+  <button class="rail-btn accent" data-rail="courses">
+    <svg viewBox="0 0 24 24"><path d="M4 19l6-3 4 3 6-3V5l-6 3-4-3-6 3z"/></svg><b>코스</b>
+  </button>
+  <div class="rail-group">
+    <button class="rail-btn" data-rail="search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg><b>검색</b>
+    </button>
+    <button class="rail-btn" data-rail="filter">
+      <svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg><b>분류</b>
+    </button>
+    <button class="rail-btn" data-rail="stamps">
+      <svg viewBox="0 0 24 24"><path d="M12 3l2.5 5.2 5.5.8-4 3.9 1 5.6L12 15.9 7 18.5l1-5.6-4-3.9 5.5-.8z"/></svg><b>스탬프</b>
+    </button>
+    <button class="rail-btn" data-rail="locate">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg><b>내 위치</b>
+    </button>
+  </div>
+</nav>
+
+<!-- 지도 위 상태 칩 -->
+<div class="map-chips" id="map-chips"></div>
+
+<!-- ══════════════════════════ 하단 도크 ══════════════════════════ -->
+<div class="dock" id="dock">
+  <div class="dock-head">
+    <b id="dock-title">문화유산</b>
+    <span id="dock-count"></span>
+  </div>
+  <div class="dock-peek" id="dock-peek"></div>
+  <button class="cta" id="btn-cta">
+    <span id="cta-label">투어 시작하기</span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+  </button>
+</div>
+
+<!-- ══════════════════════════ 상세 시트 ══════════════════════════ -->
+<section class="sheet" id="sheet" aria-hidden="true">
+  <div class="sheet-grab" id="sheet-grab"><i></i></div>
+  <div class="sheet-scroll" id="sheet-scroll"></div>
+</section>
+<div class="sheet-backdrop" id="sheet-backdrop"></div>
+
+<!-- ══════════════════════════ 드로어 ══════════════════════════ -->
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="drawer-user" id="drawer-user"></div>
+  </div>
+  <nav class="drawer-nav" id="drawer-nav"></nav>
+  <div class="drawer-foot">
+    <button class="ghost-btn" id="btn-theme">
+      <svg viewBox="0 0 24 24"><path d="M20 14a8 8 0 1 1-10-10 7 7 0 0 0 10 10z"/></svg>
+      <span id="theme-label">야간 모드</span>
+    </button>
+    <p class="drawer-note">한밭기행 v1.0 · 대전 문화유산 13선<br />데이터 출처: 국가유산청·대전광역시 공개자료 재구성</p>
+  </div>
+</aside>
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+<!-- ══════════════════════════ 전체 화면 뷰 ══════════════════════════ -->
+<main class="view" id="view" aria-hidden="true">
+  <header class="view-head">
+    <button class="icon-btn back-btn" id="view-back" aria-label="닫기">
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
+    <h1 id="view-title">제목</h1>
+    <span class="view-kicker" id="view-kicker"></span>
+  </header>
+  <div class="view-body" id="view-body"></div>
+</main>
+
+<!-- ══════════════════════════ 인증 모달 ══════════════════════════ -->
+<div class="modal" id="modal" aria-hidden="true">
+  <div class="modal-card" id="modal-card"></div>
+</div>
+
+<!-- 토스트 & 배지 팝 -->
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="badge-pop" id="badge-pop" aria-hidden="true"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="js/api.js"></script>
+<script src="js/illustrate.js"></script>
+<script src="js/three-view.js"></script>
+<script src="js/map.js"></script>
+<script src="js/panels.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

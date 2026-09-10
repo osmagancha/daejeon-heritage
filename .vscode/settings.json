@@ -1,0 +1,13 @@
+{
+  "files.eol": "\n",
+  "files.encoding": "utf8",
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.rulers": [110],
+  "search.exclude": {
+    "data/store.json": true
+  },
+  "files.associations": {
+    "*.json": "jsonc"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "서버 실행",
+      "type": "shell",
+      "command": "node server/index.js",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "서버 실행 (자동 재시작)",
+      "type": "shell",
+      "command": "node --watch server/index.js",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "사용자 데이터 초기화",
+      "detail": "data/store.json 을 지워 계정·스탬프·후기를 모두 비웁니다",
+      "type": "shell",
+      "command": "node -e \"require('fs').rmSync('data/store.json',{force:true});console.log('초기화 완료')\"",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    }
+  ]
+}

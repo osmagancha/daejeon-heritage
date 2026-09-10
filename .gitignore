@@ -1,0 +1,10 @@
+node_modules/
+data/store.json
+data/store.json.tmp
+
+dist/
+tools/tiles.js
+tools/raw/
+public/preview.html
+tools/overpass.json
+server/config.json
