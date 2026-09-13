@@ -4,6 +4,7 @@ const db = require('./db');
 const auth = require('./auth');
 const google = require('./google');
 const avatar = require('./avatar');
+const battle = require('./battle');
 const { HERITAGE, COURSES, BADGES } = require('./seed/heritage');
 const { GOODS, CITY_INTRO, CITY_FEATURES, NOTICES } = require('./seed/city');
 
@@ -635,6 +636,520 @@ on('POST', '/api/avatar/greet', (ctx) => {
   db.save();
 
   return { ok: true, earned, streak: greet.streak, avatar: avatarPayload(user) };
+});
+
+/* --- 겨루기 --- */
+
+const DAILY_BATTLES = 15;
+const WIN_POINTS = 80;
+const LOSE_POINTS = 15;
+const NPC_WIN_POINTS = 30;
+const NPC_LOSE_POINTS = 5;
+const GEM_PER_STREAK = 3;        // 몇 연승마다 옥 하나
+const RESET_STAT_POINTS = 3000;
+const RESET_STAT_GEMS = 5;
+const CHARM_GEMS = 3;            // 강화 부적 한 장
+const EXTRA_BATTLE_GEMS = 2;     // 대전 5회 추가
+
+function blankBattle() {
+  return {
+    stats: { str: 0, agi: 0, vit: 0, spi: 0 },
+    weapon: 'mokgeom', plus: 0, owned: ['mokgeom'],
+    rating: battle.BASE_RATING, wins: 0, losses: 0, draws: 0,
+    streak: 0, bestStreak: 0, day: null, count: 0, extra: 0, charms: 0
+  };
+}
+
+/** 사용자에게 붙은 겨루기 자료를 꺼낸다. 없으면 만들어 준다. */
+function battleOf(user) {
+  if (!user.battle) { user.battle = blankBattle(); db.save(); }
+  const b = user.battle;
+  if (!b.owned || !b.owned.length) b.owned = ['mokgeom'];
+  if (b.gems !== undefined) delete b.gems;
+  if (user.gems == null) user.gems = 0;
+  const today = todayKey(Date.now());
+  if (b.day !== today) { b.day = today; b.count = 0; b.extra = 0; }
+  return b;
+}
+
+const battleLimit = (b) => DAILY_BATTLES + (b.extra || 0);
+
+function levelOf(user) {
+  return avatar.stageOf(user.points || 0).level;
+}
+
+/** 나 자신을 전투 수치로 */
+function meCombatant(user) {
+  const b = battleOf(user);
+  return battle.combatant(user.nickname, levelOf(user), b.stats, b.weapon, b.plus);
+}
+
+function battleProfile(user) {
+  const b = battleOf(user);
+  const level = levelOf(user);
+  const c = meCombatant(user);
+  const total = battle.totalStatPoints(level);
+  const spent = battle.spentPoints(b.stats);
+  const games = b.wins + b.losses + b.draws;
+
+  return {
+    nickname: user.nickname,
+    avatarSeed: user.avatarSeed,
+    level,
+    points: user.points || 0,
+    gems: user.gems || 0,
+    stats: b.stats,
+    statPoints: { total, spent, left: Math.max(0, total - spent), perLevel: battle.POINTS_PER_LEVEL },
+    statDefs: battle.STATS,
+    base: battle.BASE_STATS,
+    combat: c,
+    power: battle.power(c),
+    weapon: { ...battle.weaponOf(b.weapon), plus: b.plus },
+    owned: b.owned,
+    charms: b.charms || 0,
+    enhance: {
+      max: battle.MAX_ENHANCE,
+      cost: b.plus >= battle.MAX_ENHANCE ? null : battle.enhanceCost(battle.weaponOf(b.weapon), b.plus),
+      rate: b.plus >= battle.MAX_ENHANCE ? null : battle.enhanceRate(b.plus),
+      dropFrom: battle.ENHANCE_DROP_FROM
+    },
+    record: {
+      rating: b.rating, wins: b.wins, losses: b.losses, draws: b.draws,
+      games, winRate: games ? Math.round((b.wins / games) * 100) : 0,
+      streak: b.streak, bestStreak: b.bestStreak,
+      title: battle.titleOf(b.rating)
+    },
+    today: { used: b.count, limit: battleLimit(b), left: Math.max(0, battleLimit(b) - b.count) }
+  };
+}
+
+on('GET', '/api/battle/me', (ctx) => battleProfile(needAuth(ctx.user)));
+
+/** 스탯은 더하기만 된다. 되돌리려면 초기화를 써야 한다. */
+on('POST', '/api/battle/stats', (ctx) => {
+  const user = needAuth(ctx.user);
+  const b = battleOf(user);
+  const add = (ctx.body || {}).add || {};
+  const level = levelOf(user);
+
+  let asked = 0;
+  for (const st of battle.STATS) {
+    const v = Math.floor(Number(add[st.key]) || 0);
+    if (v < 0) bad('스탯은 빼서 넣을 수 없습니다. 초기화를 이용해 주세요.');
+    asked += v;
+  }
+  if (!asked) bad('올릴 스탯을 골라 주세요.');
+
+  const left = battle.totalStatPoints(level) - battle.spentPoints(b.stats);
+  if (asked > left) throw new HttpError(400, `남은 스탯 점수가 ${left}점뿐입니다.`);
+
+  for (const st of battle.STATS) {
+    b.stats[st.key] = (b.stats[st.key] || 0) + (Math.floor(Number(add[st.key]) || 0));
+  }
+  db.save();
+  return battleProfile(user);
+});
+
+on('POST', '/api/battle/stats/reset', (ctx) => {
+  const user = needAuth(ctx.user);
+  const b = battleOf(user);
+  if (!battle.spentPoints(b.stats)) bad('아직 올린 스탯이 없습니다.');
+
+  const useGems = !!(ctx.body || {}).gems;
+  if (useGems) {
+    if ((user.gems || 0) < RESET_STAT_GEMS) throw new HttpError(402, `옥이 ${RESET_STAT_GEMS - (user.gems || 0)}개 부족합니다.`);
+    user.gems -= RESET_STAT_GEMS;
+  } else {
+    if ((user.points || 0) < RESET_STAT_POINTS) throw new HttpError(402, `포인트가 ${RESET_STAT_POINTS - (user.points || 0)}P 부족합니다.`);
+    user.points -= RESET_STAT_POINTS;
+  }
+  b.stats = { str: 0, agi: 0, vit: 0, spi: 0 };
+  db.save();
+  return battleProfile(user);
+});
+
+/* --- 무기 상점과 대장간 --- */
+
+on('GET', '/api/battle/shop', (ctx) => {
+  const user = needAuth(ctx.user);
+  const b = battleOf(user);
+  const level = levelOf(user);
+  return {
+    points: user.points || 0,
+    gems: user.gems || 0,
+    equipped: b.weapon,
+    rows: battle.WEAPONS.map((w) => ({
+      ...w,
+      owned: b.owned.includes(w.key),
+      canLevel: level >= w.level,
+      canAfford: (user.points || 0) >= w.price
+    }))
+  };
+});
+
+on('POST', '/api/battle/buy', (ctx) => {
+  const user = needAuth(ctx.user);
+  const b = battleOf(user);
+  const w = battle.WEAPONS.find((x) => x.key === (ctx.body || {}).key);
+  if (!w) bad('알 수 없는 무기입니다.');
+  if (b.owned.includes(w.key)) throw new HttpError(409, '이미 가지고 있습니다.');
+  if (levelOf(user) < w.level) throw new HttpError(400, `${w.level}단계부터 살 수 있습니다.`);
+  if ((user.points || 0) < w.price) throw new HttpError(402, `포인트가 ${(w.price - (user.points || 0)).toLocaleString()}P 부족합니다.`);
+
+  user.points -= w.price;
+  b.owned.push(w.key);
+  db.save();
+  return { ok: true, bought: w.name, profile: battleProfile(user) };
+});
+
+on('POST', '/api/battle/equip', (ctx) => {
+  const user = needAuth(ctx.user);
+  const b = battleOf(user);
+  const key = (ctx.body || {}).key;
+  if (!b.owned.includes(key)) throw new HttpError(400, '가지고 있지 않은 무기입니다.');
+  if (key !== b.weapon) { b.weapon = key; b.plus = 0; }   // 무기를 바꾸면 강화는 그 무기 기준으로 다시
+  db.save();
+  return battleProfile(user);
+});
+
+on('POST', '/api/battle/enhance', (ctx) => {
+  const user = needAuth(ctx.user);
+  const b = battleOf(user);
+  const w = battle.weaponOf(b.weapon);
+  if (b.plus >= battle.MAX_ENHANCE) throw new HttpError(409, '더는 강화할 수 없습니다.');
+
+  const cost = battle.enhanceCost(w, b.plus);
+  if ((user.points || 0) < cost) throw new HttpError(402, `포인트가 ${(cost - (user.points || 0)).toLocaleString()}P 부족합니다.`);
+
+  const useCharm = !!(ctx.body || {}).charm;
+  if (useCharm && (b.charms || 0) < 1) throw new HttpError(400, '부적이 없습니다.');
+
+  user.points -= cost;
+  let rate = battle.enhanceRate(b.plus);
+  if (useCharm) { b.charms -= 1; rate = Math.min(0.99, rate + 0.15); }
+
+  const before = b.plus;
+  const ok = Math.random() < rate;
+  let dropped = false;
+  if (ok) b.plus += 1;
+  else if (before >= battle.ENHANCE_DROP_FROM) { b.plus = before - 1; dropped = true; }
+
+  db.save();
+  return {
+    ok, dropped, before, after: b.plus, cost,
+    rate: Math.round(rate * 1000) / 10,
+    profile: battleProfile(user)
+  };
+});
+
+/* --- 상대 고르기와 겨루기 --- */
+
+function opponentRow(u, me) {
+  const b = battleOf(u);
+  const c = battle.combatant(u.nickname, levelOf(u), b.stats, b.weapon, b.plus);
+  return {
+    id: u.id, nickname: u.nickname, avatarSeed: u.avatarSeed,
+    level: levelOf(u), rating: b.rating, power: battle.power(c),
+    weapon: battle.weaponOf(b.weapon).name, plus: b.plus,
+    title: battle.titleOf(b.rating).name,
+    friend: isFriend(me.id, u.id)
+  };
+}
+
+function isFriend(x, y) {
+  const [a, c] = x < y ? [x, y] : [y, x];
+  return db.table('friends').some((f) => f.a === a && f.b === c);
+}
+
+on('GET', '/api/battle/opponents', (ctx) => {
+  const user = needAuth(ctx.user);
+  const mine = battleOf(user);
+  const others = db.table('users').filter((u) => u.id !== user.id);
+
+  // 등급이 가까운 순으로 고른다. 친구는 따로 모아 준다.
+  const rows = others.map((u) => opponentRow(u, user))
+    .sort((a, b2) => Math.abs(a.rating - mine.rating) - Math.abs(b2.rating - mine.rating));
+
+  return {
+    players: rows.slice(0, 20),
+    friends: rows.filter((r) => r.friend),
+    npcs: battle.NPCS.map((n) => {
+      const c = battle.combatant(n.name, n.level, n.stats, n.weapon, n.plus);
+      return { id: n.id, name: n.name, emoji: n.emoji, line: n.line, level: n.level, power: battle.power(c) };
+    }),
+    today: { used: mine.count, limit: battleLimit(mine), left: Math.max(0, battleLimit(mine) - mine.count) }
+  };
+});
+
+on('POST', '/api/battle/challenge', (ctx) => {
+  const user = needAuth(ctx.user);
+  const b = battleOf(user);
+  const targetId = String((ctx.body || {}).target || '');
+
+  if (b.count >= battleLimit(b)) {
+    throw new HttpError(429, '오늘 겨룰 수 있는 횟수를 다 썼습니다. 내일 다시 오세요.');
+  }
+
+  const me = meCombatant(user);
+  const npc = battle.npcById(targetId);
+  let foe, foeUser = null;
+
+  if (npc) {
+    foe = battle.combatant(npc.name, npc.level, npc.stats, npc.weapon, npc.plus);
+  } else {
+    foeUser = db.table('users').find((u) => u.id === targetId);
+    if (!foeUser) bad('상대를 찾을 수 없습니다.');
+    if (foeUser.id === user.id) bad('자기 자신과는 겨룰 수 없습니다.');
+    const fb = battleOf(foeUser);
+    foe = battle.combatant(foeUser.nickname, levelOf(foeUser), fb.stats, fb.weapon, fb.plus);
+  }
+
+  const seed = user.id + ':' + targetId + ':' + Date.now();
+  const result = battle.fight(me, foe, seed);
+  const iWon = result.winner === 'a';
+  const isDraw = result.winner === 'draw';
+
+  b.count += 1;
+  let earned = 0;
+  let delta = 0;
+  let gemGained = 0;
+
+  if (npc) {
+    earned = iWon ? NPC_WIN_POINTS : NPC_LOSE_POINTS;
+  } else {
+    const fb = battleOf(foeUser);
+    delta = battle.ratingDelta(b.rating, fb.rating, isDraw ? 'draw' : (iWon ? 'win' : 'lose'));
+    b.rating = Math.max(100, b.rating + delta);
+    fb.rating = Math.max(100, fb.rating - delta);
+    earned = iWon ? WIN_POINTS : (isDraw ? 30 : LOSE_POINTS);
+
+    if (iWon) { fb.losses += 1; fb.streak = 0; }
+    else if (isDraw) fb.draws += 1;
+    else { fb.wins += 1; fb.streak += 1; fb.bestStreak = Math.max(fb.bestStreak, fb.streak); }
+  }
+
+  if (iWon) {
+    b.wins += 1;
+    b.streak += 1;
+    b.bestStreak = Math.max(b.bestStreak, b.streak);
+    if (!npc && b.streak % GEM_PER_STREAK === 0) { user.gems = (user.gems || 0) + 1; gemGained = 1; }
+  } else if (isDraw) {
+    b.draws += 1;
+  } else {
+    b.losses += 1;
+    b.streak = 0;
+  }
+
+  addPoints(user, earned);
+
+  const record = {
+    id: db.id('bt_'), aId: user.id, bId: npc ? null : foeUser.id,
+    bName: npc ? npc.name : foeUser.nickname, npc: !!npc,
+    winner: result.winner, delta, earned, at: Date.now()
+  };
+  db.table('battles').push(record);
+  // 기록이 끝없이 쌓이지 않게 최근 것만 남긴다
+  const all = db.table('battles');
+  if (all.length > 800) all.splice(0, all.length - 800);
+  db.save();
+
+  return {
+    me: { name: me.name, hp: me.hp, power: battle.power(me), combat: me },
+    foe: { name: foe.name, hp: foe.hp, power: battle.power(foe), combat: foe, npc: !!npc, emoji: npc ? npc.emoji : null },
+    result: { winner: result.winner, hpA: result.hpA, hpB: result.hpB },
+    log: result.log,
+    reward: { points: earned, rating: delta, gems: gemGained, streak: b.streak },
+    profile: battleProfile(user)
+  };
+});
+
+on('GET', '/api/battle/history', (ctx) => {
+  const user = needAuth(ctx.user);
+  return {
+    rows: db.table('battles')
+      .filter((x) => x.aId === user.id || x.bId === user.id)
+      .sort((a, b2) => b2.at - a.at).slice(0, 30)
+      .map((x) => {
+        const mine = x.aId === user.id;
+        const won = mine ? x.winner === 'a' : x.winner === 'b';
+        const other = mine ? x.bName : (db.table('users').find((u) => u.id === x.aId) || {}).nickname || '탈퇴한 사용자';
+        return {
+          id: x.id, at: x.at, opponent: other, npc: x.npc,
+          result: x.winner === 'draw' ? 'draw' : (won ? 'win' : 'lose'),
+          delta: mine ? x.delta : -x.delta,
+          earned: mine ? x.earned : 0
+        };
+      })
+  };
+});
+
+on('GET', '/api/battle/ranking', (ctx) => {
+  const rows = db.table('users')
+    .filter((u) => u.battle && (u.battle.wins || u.battle.losses || u.battle.draws))
+    .map((u) => {
+      const b = u.battle;
+      const c = battle.combatant(u.nickname, levelOf(u), b.stats, b.weapon, b.plus);
+      const games = b.wins + b.losses + b.draws;
+      return {
+        nickname: u.nickname, avatarSeed: u.avatarSeed,
+        rating: b.rating, title: battle.titleOf(b.rating).name,
+        wins: b.wins, losses: b.losses, draws: b.draws,
+        winRate: games ? Math.round((b.wins / games) * 100) : 0,
+        bestStreak: b.bestStreak, power: battle.power(c),
+        weapon: battle.weaponOf(b.weapon).name, plus: b.plus,
+        isMe: !!(ctx.user && ctx.user.id === u.id)
+      };
+    })
+    .sort((a, b2) => b2.rating - a.rating || b2.wins - a.wins);
+
+  rows.forEach((r, i) => { r.rank = i + 1; });
+  const me = ctx.user ? rows.find((r) => r.isMe) : null;
+  return { total: rows.length, rows: rows.slice(0, 50), me: me || null };
+});
+
+/* --- 옥 (유료 재화) --- */
+
+const GEM_USES = [
+  { key: 'charm',  name: '강화 부적', gems: CHARM_GEMS,        desc: '다음 강화 성공률이 15% 오릅니다.' },
+  { key: 'extra',  name: '겨루기 5회', gems: EXTRA_BATTLE_GEMS, desc: '오늘 겨룰 수 있는 횟수를 5회 늘립니다.' },
+  { key: 'respec', name: '스탯 초기화', gems: RESET_STAT_GEMS,  desc: '올린 스탯을 모두 되돌립니다.' }
+];
+
+/** 옥은 지금 겨루기로만 얻는다. 결제는 아직 열려 있지 않다. */
+const GEM_PLANS = [
+  { key: 'p10',  gems: 10,  won: 1100,  bonus: 0 },
+  { key: 'p30',  gems: 30,  won: 3300,  bonus: 3 },
+  { key: 'p60',  gems: 60,  won: 6600,  bonus: 9 },
+  { key: 'p120', gems: 120, won: 12000, bonus: 24 }
+];
+
+on('GET', '/api/shop/gems', (ctx) => {
+  const user = needAuth(ctx.user);
+  battleOf(user);
+  return {
+    gems: user.gems || 0,
+    uses: GEM_USES,
+    plans: GEM_PLANS,
+    purchasable: false,
+    notice: '옥은 지금 겨루기 3연승마다 하나씩 드립니다. 결제로 사는 기능은 아직 열려 있지 않습니다.'
+  };
+});
+
+on('POST', '/api/shop/gems/use', (ctx) => {
+  const user = needAuth(ctx.user);
+  const b = battleOf(user);
+  const use = GEM_USES.find((u) => u.key === (ctx.body || {}).key);
+  if (!use) bad('알 수 없는 항목입니다.');
+  if ((user.gems || 0) < use.gems) throw new HttpError(402, `옥이 ${use.gems - (user.gems || 0)}개 부족합니다.`);
+
+  if (use.key === 'charm') b.charms = (b.charms || 0) + 1;
+  else if (use.key === 'extra') b.extra = (b.extra || 0) + 5;
+  else if (use.key === 'respec') b.stats = { str: 0, agi: 0, vit: 0, spi: 0 };
+
+  user.gems -= use.gems;
+  db.save();
+  return { ok: true, used: use.name, profile: battleProfile(user) };
+});
+
+on('POST', '/api/shop/gems/buy', () => {
+  // 실제 결제는 사업자 등록과 결제대행사 계약이 있어야 붙일 수 있다.
+  // 여기에 그 연동을 끼우면 된다. 지금은 분명히 막아 둔다.
+  throw new HttpError(501, '옥을 결제로 사는 기능은 아직 열려 있지 않습니다. 겨루기로 모아 주세요.');
+});
+
+/* --- 친구 --- */
+
+function friendPair(x, y) { return x < y ? [x, y] : [y, x]; }
+
+on('GET', '/api/friends', (ctx) => {
+  const user = needAuth(ctx.user);
+  const users = db.table('users');
+  const byId = (id) => users.find((u) => u.id === id);
+
+  const list = db.table('friends')
+    .filter((f) => f.a === user.id || f.b === user.id)
+    .map((f) => byId(f.a === user.id ? f.b : f.a))
+    .filter(Boolean)
+    .map((u) => {
+      const b = battleOf(u);
+      return {
+        id: u.id, nickname: u.nickname, avatarSeed: u.avatarSeed,
+        level: levelOf(u), points: u.points || 0,
+        rating: b.rating, title: battle.titleOf(b.rating).name,
+        stamps: new Set(db.table('visits').filter((v) => v.userId === u.id).map((v) => v.heritageId)).size
+      };
+    })
+    .sort((a, b2) => b2.rating - a.rating);
+
+  const reqs = db.table('friendReqs');
+  return {
+    friends: list,
+    incoming: reqs.filter((r) => r.to === user.id).map((r) => {
+      const u = byId(r.from);
+      return { id: r.id, at: r.at, nickname: u ? u.nickname : '탈퇴한 사용자', avatarSeed: u ? u.avatarSeed : 0 };
+    }),
+    outgoing: reqs.filter((r) => r.from === user.id).map((r) => {
+      const u = byId(r.to);
+      return { id: r.id, at: r.at, nickname: u ? u.nickname : '탈퇴한 사용자' };
+    })
+  };
+});
+
+on('POST', '/api/friends/request', (ctx) => {
+  const user = needAuth(ctx.user);
+  const nickname = String((ctx.body || {}).nickname || '').trim();
+  if (!nickname) bad('상대의 이름을 적어 주세요.');
+
+  const target = db.table('users').find((u) => u.nickname === nickname);
+  if (!target) throw new HttpError(404, `'${nickname}' 님을 찾지 못했습니다. 이름이 정확한지 확인해 주세요.`);
+  if (target.id === user.id) bad('자기 자신에게는 보낼 수 없습니다.');
+  if (isFriend(user.id, target.id)) throw new HttpError(409, '이미 친구입니다.');
+
+  const reqs = db.table('friendReqs');
+  if (reqs.some((r) => r.from === user.id && r.to === target.id)) {
+    throw new HttpError(409, '이미 보낸 신청이 있습니다.');
+  }
+  // 상대가 먼저 보냈다면 바로 친구가 된다
+  const mirror = reqs.find((r) => r.from === target.id && r.to === user.id);
+  if (mirror) {
+    reqs.splice(reqs.indexOf(mirror), 1);
+    const [a, b2] = friendPair(user.id, target.id);
+    db.table('friends').push({ a, b: b2, at: Date.now() });
+    db.save();
+    return { ok: true, becameFriends: true, nickname: target.nickname };
+  }
+
+  reqs.push({ id: db.id('fr_'), from: user.id, to: target.id, at: Date.now() });
+  db.save();
+  return { ok: true, becameFriends: false, nickname: target.nickname };
+});
+
+on('POST', '/api/friends/respond', (ctx) => {
+  const user = needAuth(ctx.user);
+  const { id, accept } = ctx.body || {};
+  const reqs = db.table('friendReqs');
+  const i = reqs.findIndex((r) => r.id === id && r.to === user.id);
+  if (i < 0) throw new HttpError(404, '신청을 찾을 수 없습니다.');
+
+  const req = reqs[i];
+  reqs.splice(i, 1);
+  if (accept) {
+    const [a, b2] = friendPair(req.from, user.id);
+    if (!isFriend(a, b2)) db.table('friends').push({ a, b: b2, at: Date.now() });
+  }
+  db.save();
+  return { ok: true, accepted: !!accept };
+});
+
+on('DELETE', '/api/friends/:userId', (ctx) => {
+  const user = needAuth(ctx.user);
+  const [a, b2] = friendPair(user.id, ctx.params.userId);
+  const rows = db.table('friends');
+  const i = rows.findIndex((f) => f.a === a && f.b === b2);
+  if (i < 0) throw new HttpError(404, '친구가 아닙니다.');
+  rows.splice(i, 1);
+  db.save();
+  return { ok: true };
 });
 
 /* --- 관리자 --- */

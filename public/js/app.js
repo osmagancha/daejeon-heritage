@@ -319,6 +319,91 @@
       return;
     }
 
+    /* 겨루기 */
+    const bTab = t.closest('[data-battle-tab]');
+    if (bTab) { UI.setFight(null); UI.setBattle(bTab.dataset.battleTab); UI.openView('battle'); return; }
+
+    const fight = t.closest('[data-fight]');
+    if (fight && !fight.disabled) {
+      fight.disabled = true;
+      try {
+        const f = await API.post('/battle/challenge', { target: fight.dataset.fight });
+        UI.setFight(f);
+        await Store.refreshMe();
+        UI.openView('battle');
+        syncAll();
+      } catch (err) { UI.toast(err.message, '⚠️'); fight.disabled = false; }
+      return;
+    }
+
+    const plus = t.closest('[data-stat]');
+    if (plus && !plus.disabled) {
+      try {
+        await API.post('/battle/stats', { add: { [plus.dataset.stat]: 1 } });
+        UI.setBattle('mine');
+        UI.openView('battle');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const buyW = t.closest('[data-buy-weapon]');
+    if (buyW && !buyW.disabled) {
+      try {
+        const r = await API.post('/battle/buy', { key: buyW.dataset.buyWeapon });
+        UI.toast(`${r.bought} 을(를) 손에 넣었습니다`, '⚔️');
+        await Store.refreshMe();
+        UI.setBattle('forge');
+        UI.openView('battle');
+        syncAll();
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const eq = t.closest('[data-equip]');
+    if (eq) {
+      try {
+        await API.post('/battle/equip', { key: eq.dataset.equip });
+        UI.toast('무기를 바꿨습니다. 강화는 새로 시작합니다.', '🔁');
+        UI.setBattle('forge');
+        UI.openView('battle');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const gemUse = t.closest('[data-gem-use]');
+    if (gemUse && !gemUse.disabled) {
+      try {
+        const r = await API.post('/shop/gems/use', { key: gemUse.dataset.gemUse });
+        UI.toast(`${r.used} 을(를) 썼습니다`, '🔷');
+        await Store.refreshMe();
+        UI.openView('gems');
+        syncAll();
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const fYes = t.closest('[data-friend-yes]');
+    const fNo = t.closest('[data-friend-no]');
+    if (fYes || fNo) {
+      try {
+        await API.post('/friends/respond', { id: (fYes || fNo).dataset[fYes ? 'friendYes' : 'friendNo'], accept: !!fYes });
+        UI.toast(fYes ? '친구가 되었습니다' : '신청을 거절했습니다', fYes ? '🤝' : '✋');
+        UI.openView('friends');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const fDel = t.closest('[data-friend-del]');
+    if (fDel) {
+      if (!confirm('친구를 끊습니다. 계속할까요?')) return;
+      try {
+        await API.del('/friends/' + fDel.dataset.friendDel);
+        UI.toast('친구를 끊었습니다', '👋');
+        UI.openView('friends');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
     /* 아바타 꾸미기 */
     const lookRobe = t.closest('[data-look-robe]');
     const lookItem = t.closest('[data-look-item]');
@@ -401,6 +486,46 @@
       UI.closeView();
       body.classList.add('sheet-peek');
       MapView.select(UI.currentDetail.id);
+    }
+    else if (a === 'battle-again') { UI.setFight(null); UI.setBattle('arena'); UI.openView('battle'); }
+    else if (a === 'enhance' || a === 'enhance-charm') {
+      try {
+        const r = await API.post('/battle/enhance', { charm: a === 'enhance-charm' });
+        const box = document.getElementById('forge-result');
+        if (box) {
+          box.innerHTML = `<div class="forge-msg ${r.ok ? 'ok' : (r.dropped ? 'drop' : 'fail')}">
+            ${r.ok ? `+${r.before} → <b>+${r.after}</b> 성공했습니다`
+                   : (r.dropped ? `실패했습니다. +${r.before} → <b>+${r.after}</b> 로 내려갔습니다`
+                                : `실패했습니다. +${r.before} 그대로입니다`)}
+          </div>`;
+        }
+        UI.toast(r.ok ? `강화 성공! +${r.after}` : '강화 실패', r.ok ? '✨' : '💢');
+        await Store.refreshMe();
+        setTimeout(() => { UI.setBattle('forge'); UI.openView('battle'); }, 900);
+        syncAll();
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+    }
+    else if (a === 'stat-reset') {
+      if (!confirm('올린 스탯을 모두 되돌립니다. 3,000P 가 듭니다. 계속할까요?')) return;
+      try {
+        await API.post('/battle/stats/reset', {});
+        UI.toast('스탯을 되돌렸습니다', '🔄');
+        await Store.refreshMe();
+        UI.setBattle('mine');
+        UI.openView('battle');
+        syncAll();
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+    }
+    else if (a === 'friend-add') {
+      const input = $('#friend-name');
+      try {
+        const r = await API.post('/friends/request', { nickname: input.value.trim() });
+        UI.toast(r.becameFriends ? `${r.nickname} 님과 친구가 되었습니다` : `${r.nickname} 님에게 신청했습니다`, '🤝');
+        UI.openView('friends');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+    }
+    else if (a === 'gem-buy') {
+      UI.toast('옥 결제는 아직 열려 있지 않습니다. 겨루기로 모아 주세요.', '🔷');
     }
     else if (a === 'greet') {
       try {

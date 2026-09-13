@@ -33,7 +33,10 @@ const EMPTY = {
   reviews: [],     // {id, userId, heritageId, rating, body, at}
   quizLogs: [],    // {id, userId, heritageId, qIndex, correct, at}
   orders: [],      // {id, userId, goodsId, qty, pointsSpent, at, status}
-  badges: []       // {userId, badgeId, at}
+  badges: [],      // {userId, badgeId, at}
+  battles: [],     // {id, aId, bId, bName, npc, winner, delta, at, log}
+  friends: [],     // {a, b, at}  — a < b 로 정렬해 한 줄만 둔다
+  friendReqs: []   // {id, from, to, at}
 };
 
 let cache = null;

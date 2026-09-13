@@ -56,6 +56,7 @@ const parts = [
   '<script>' + safe(read('public', 'js', 'illustrate.js')) + '</script>',
   '<script>' + safe(read('public', 'js', 'avatar-art.js')) + '</script>',
   '<script>' + safe(read('public', 'js', 'avatar-3d.js')) + '</script>',
+  '<script>' + safe(read('public', 'js', 'battle-ui.js')) + '</script>',
   '<script>' + safe(read('public', 'js', 'three-view.js')) + '</script>',
   '<script>' + safe(read('public', 'js', 'map.js')) + '</script>',
   '<script>' + safe(read('public', 'js', 'panels.js')) + '</script>',

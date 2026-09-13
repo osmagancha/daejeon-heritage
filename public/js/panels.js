@@ -28,6 +28,8 @@
     topAvatar: $('#top-avatar')
   };
 
+  let battleTab = 'arena';    // 겨루기 화면 탭
+  let fightData = null;       // 방금 끝난 전투 (있으면 재생 화면을 띄운다)
   let avatar3d = null;        // 아바타 3D 인스턴스
   let avatarLook = null;      // 현재 차림새
   let adminTab = 'overview';  // 관리자 화면 탭
@@ -839,6 +841,105 @@
       };
     },
 
+    /* ── 겨루기 ── */
+    async battle() {
+      if (!Store.user) return Views.needLogin('겨루기', '⚔️', '이름을 정하면 무사가 되어 겨룰 수 있습니다.');
+      if (window.LocalAPI) return Views.serverOnly('겨루기');
+
+      const d = await API.get('/battle/me');
+
+      // 방금 겨룬 결과가 있으면 그것부터 보여 준다
+      if (fightData) {
+        const f = fightData;
+        return {
+          title: '겨루기', kicker: `${d.record.title.name} ${d.record.rating}`,
+          html: `<div class="wrap">${BattleUI.fightStage(f)}</div>`,
+          after() { BattleUI.playFight(f); }
+        };
+      }
+
+      const tabs = [['arena', '도전'], ['mine', '내 무사'], ['forge', '대장간'], ['history', '기록']];
+      let body = '';
+      if (battleTab === 'arena') {
+        body = BattleUI.arena(d, await API.get('/battle/opponents'));
+      } else if (battleTab === 'mine') {
+        body = BattleUI.mine(d);
+      } else if (battleTab === 'forge') {
+        body = BattleUI.forge(d, await API.get('/battle/shop'));
+      } else {
+        body = BattleUI.history((await API.get('/battle/history')).rows);
+      }
+
+      return {
+        title: '겨루기', kicker: `${d.record.title.name} ${d.record.rating}`,
+        html: `<div class="wrap">
+          <div class="tabs" style="margin:0 0 18px">
+            ${tabs.map(([k, label]) =>
+              `<button class="tab ${battleTab === k ? 'on' : ''}" data-battle-tab="${k}">${label}</button>`).join('')}
+          </div>
+          ${body}
+        </div>`
+      };
+    },
+
+    /* ── 겨루기 랭킹 ── */
+    async battleRank() {
+      if (window.LocalAPI) return Views.serverOnly('겨루기 랭킹');
+      const d = await API.get('/battle/ranking');
+      return {
+        title: '겨루기 랭킹', kicker: `${d.total}명`,
+        html: `<div class="wrap">
+          <p class="lede">겨루기 등급 순위입니다. 이기면 오르고 지면 내려갑니다.</p>
+          <div style="height:16px"></div>
+          ${BattleUI.ranking(d)}
+        </div>`
+      };
+    },
+
+    /* ── 친구 ── */
+    async friends() {
+      if (!Store.user) return Views.needLogin('친구', '👥', '이름을 정하면 친구를 맺을 수 있습니다.');
+      if (window.LocalAPI) return Views.serverOnly('친구');
+      const d = await API.get('/friends');
+      return {
+        title: '친구', kicker: `${d.friends.length}명`,
+        html: `<div class="wrap">${BattleUI.friends(d)}</div>`
+      };
+    },
+
+    /* ── 옥 상점 ── */
+    async gems() {
+      if (!Store.user) return Views.needLogin('옥', '🔷', '이름을 정하면 옥을 모을 수 있습니다.');
+      if (window.LocalAPI) return Views.serverOnly('옥');
+      const d = await API.get('/shop/gems');
+      return { title: '옥', kicker: `${d.gems}개`, html: `<div class="wrap">${BattleUI.gemShop(d)}</div>` };
+    },
+
+    /* ── 공통 안내 ── */
+    needLogin(title, emoji, line) {
+      return {
+        title, kicker: '',
+        html: `<div class="wrap" style="text-align:center;padding-top:64px">
+          <div style="font-size:50px">${emoji}</div>
+          <h3 style="font-family:var(--font-serif);font-size:21px;margin:12px 0 6px">먼저 시작해 주세요</h3>
+          <p class="lede" style="margin-bottom:20px">${line}</p>
+          <button class="btn red" data-act="open-auth">${window.LocalAPI ? '이름 정하기' : '로그인 / 가입'}</button>
+        </div>`
+      };
+    },
+
+    serverOnly(title) {
+      return {
+        title, kicker: '',
+        html: `<div class="wrap" style="text-align:center;padding-top:64px">
+          <div style="font-size:50px">🌐</div>
+          <h3 style="font-family:var(--font-serif);font-size:21px;margin:12px 0 6px">서버가 있어야 열립니다</h3>
+          <p class="lede">${Util.esc(title)}은(는) 여러 사람이 함께 쓰는 기능이라
+            공유용 배포판에서는 동작하지 않습니다.<br />실제 주소로 접속해 주세요.</p>
+        </div>`
+      };
+    },
+
     /* ── 관리자 ── */
     async admin() {
       if (!Store.user || !Store.user.isAdmin) {
@@ -1057,6 +1158,11 @@
     { key: 'avatar', em: '🧑‍🎓', label: '내 아바타', tail: () => Store.user ? '' : '' },
     { key: 'stamps', em: '🏮', label: '내 스탬프', tail: () => Store.me ? `${Store.visitedCount()}/${Store.heritage.length}` : '' },
     { key: 'ranking', em: '🏆', label: '탐방 랭킹' },
+    { sec: '겨루기' },
+    { key: 'battle', em: '⚔️', label: '겨루기' },
+    { key: 'battleRank', em: '🏅', label: '겨루기 랭킹' },
+    { key: 'friends', em: '👥', label: '친구' },
+    { key: 'gems', em: '🔷', label: '옥', tail: () => (Store.user && Store.user.gems) ? String(Store.user.gems) : '' },
     { sec: '대전 알아보기' },
     { key: 'intro', em: '🏙️', label: '대전 소개' },
     { key: 'features', em: '🍞', label: '대전 특징 · 명물' },
@@ -1081,7 +1187,10 @@
          </div>
          <button class="btn red" style="height:38px;padding:0 14px;font-size:13px" data-act="open-auth">${window.LocalAPI ? '이름 정하기' : '로그인'}</button>`;
 
-    let nav = window.LocalAPI ? NAV.filter((n) => n.key !== 'ranking') : NAV;
+    const serverOnlyKeys = ['ranking', 'battle', 'battleRank', 'friends', 'gems'];
+    let nav = window.LocalAPI
+      ? NAV.filter((n) => !serverOnlyKeys.includes(n.key) && n.sec !== '겨루기')
+      : NAV;
     if (Store.user && Store.user.isAdmin) {
       nav = nav.concat([{ sec: '운영' }, { key: 'admin', em: '🛠️', label: '관리자' }]);
     }
@@ -1222,6 +1331,8 @@
     renderPane, sheetHtml,
     Views, openView, closeView,
     renderDrawer, openDrawer,
+    setBattle(tab) { if (tab) battleTab = tab; },
+    setFight(f) { fightData = f; },
     setAdmin(tab, query) {
       if (tab) adminTab = tab;
       if (query !== undefined) adminQuery = query;
