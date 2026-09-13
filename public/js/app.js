@@ -319,6 +319,12 @@
       return;
     }
 
+    /* 랭킹 부문 · 기간 */
+    const rs = t.closest('[data-rank-sort]');
+    if (rs) { UI.setRank(rs.dataset.rankSort, null); UI.openView('ranking'); return; }
+    const rp = t.closest('[data-rank-period]');
+    if (rp) { UI.setRank(null, rp.dataset.rankPeriod); UI.openView('ranking'); return; }
+
     /* 시대 아코디언 */
     const era = t.closest('.era-head');
     if (era) { era.parentElement.classList.toggle('open'); return; }

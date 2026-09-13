@@ -430,17 +430,116 @@ on('POST', '/api/orders', (ctx) => {
 
 /* --- 랭킹 --- */
 
-on('GET', '/api/leaderboard', () => {
-  const visits = db.table('visits');
-  return db.table('users')
-    .map((u) => ({
-      nickname: u.nickname,
-      avatarSeed: u.avatarSeed,
-      points: u.points || 0,
-      stamps: new Set(visits.filter((v) => v.userId === u.id).map((v) => v.heritageId)).size
+/* --- 랭킹 --- */
+
+const PERIOD_MS = { week: 7 * 864e5, month: 30 * 864e5 };
+
+/** 기간 안에서 실제로 벌어들인 포인트를 사건 기록으로 되짚는다 */
+function earnedWithin(userId, since) {
+  let total = 0;
+
+  for (const v of db.table('visits')) {
+    if (v.userId !== userId || v.at < since) continue;
+    const h = byId.get(v.heritageId);
+    if (!h) continue;
+    total += v.method === 'gps' ? h.points : Math.round(h.points * 0.4);
+  }
+
+  // 같은 문항을 여러 번 맞혀도 점수는 처음 한 번만 들어간다
+  const counted = new Set();
+  for (const q of db.table('quizLogs').slice().sort((a, b) => a.at - b.at)) {
+    if (q.userId !== userId || !q.correct) continue;
+    const key = q.heritageId + ':' + q.qIndex;
+    if (counted.has(key)) continue;
+    counted.add(key);
+    if (q.at >= since) total += QUIZ_POINTS;
+  }
+
+  for (const r of db.table('reviews')) {
+    if (r.userId === userId && r.at >= since) total += REVIEW_POINTS;
+  }
+  return total;
+}
+
+/** 한 사람의 탐방 기록을 한 줄로 요약한다 */
+function statsOf(user, since) {
+  const visits = db.table('visits').filter((v) => v.userId === user.id && v.at >= since);
+  const quiz = db.table('quizLogs').filter((q) => q.userId === user.id && q.correct && q.at >= since);
+  const reviews = db.table('reviews').filter((r) => r.userId === user.id && r.at >= since);
+  const times = [...visits, ...quiz, ...reviews].map((x) => x.at);
+
+  return {
+    id: user.id,
+    nickname: user.nickname,
+    avatarSeed: user.avatarSeed,
+    points: since > 0 ? earnedWithin(user.id, since) : (user.points || 0),
+    stamps: new Set(visits.map((v) => v.heritageId)).size,
+    quizCorrect: new Set(quiz.map((q) => q.heritageId + ':' + q.qIndex)).size,
+    reviews: reviews.length,
+    badges: db.table('badges').filter((b) => b.userId === user.id).length,
+    lastAt: times.length ? Math.max(...times) : 0
+  };
+}
+
+const SORTS = {
+  points:  { label: '종합', unit: 'P',  pick: (r) => r.points },
+  stamps:  { label: '스탬프', unit: '개', pick: (r) => r.stamps },
+  quiz:    { label: '퀴즈',  unit: '문제', pick: (r) => r.quizCorrect },
+  reviews: { label: '기록',  unit: '편', pick: (r) => r.reviews }
+};
+
+on('GET', '/api/leaderboard', (ctx) => {
+  const sort = SORTS[ctx.query.sort] ? ctx.query.sort : 'points';
+  const period = PERIOD_MS[ctx.query.period] ? ctx.query.period : 'all';
+  const since = period === 'all' ? 0 : Date.now() - PERIOD_MS[period];
+  const pick = SORTS[sort].pick;
+
+  const rows = db.table('users')
+    .map((u) => statsOf(u, since))
+    .filter((r) => period === 'all' || pick(r) > 0)     // 기간 랭킹에는 활동한 사람만
+    .sort((a, b) => pick(b) - pick(a) || b.points - a.points || a.lastAt - b.lastAt);
+
+  // 같은 점수는 같은 등수 (공동 순위)
+  let lastScore = null;
+  let lastRank = 0;
+  rows.forEach((r, i) => {
+    const score = pick(r);
+    if (score !== lastScore) { lastRank = i + 1; lastScore = score; }
+    r.rank = lastRank;
+    r.score = score;
+  });
+
+  const mine = ctx.user ? rows.find((r) => r.id === ctx.user.id) : null;
+  const strip = (r) => {
+    const { id, ...rest } = r;
+    return ctx.user && id === ctx.user.id ? { ...rest, isMe: true } : rest;
+  };
+
+  // 방문자가 많은 문화유산
+  const visitors = new Map();
+  for (const v of db.table('visits')) {
+    if (v.at < since) continue;
+    if (!visitors.has(v.heritageId)) visitors.set(v.heritageId, new Set());
+    visitors.get(v.heritageId).add(v.userId);
+  }
+  const popular = HERITAGE
+    .map((h) => ({
+      id: h.id, name: h.name, short: h.short, category: h.category,
+      palette: h.palette, model: h.model,
+      visitors: visitors.has(h.id) ? visitors.get(h.id).size : 0
     }))
-    .sort((a, b) => b.points - a.points || b.stamps - a.stamps)
-    .slice(0, 20);
+    .sort((a, b) => b.visitors - a.visitors)
+    .slice(0, 5);
+
+  return {
+    sort, period,
+    sorts: Object.entries(SORTS).map(([k, v]) => ({ key: k, label: v.label, unit: v.unit })),
+    total: rows.length,
+    rows: rows.slice(0, 50).map(strip),
+    me: mine ? strip(mine) : null,
+    popular,
+    updatedAt: Date.now()
+  };
 });
 
 /* ------------------------------------------------------------- dispatcher */

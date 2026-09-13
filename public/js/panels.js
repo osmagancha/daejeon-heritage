@@ -28,6 +28,8 @@
     topAvatar: $('#top-avatar')
   };
 
+  let rankSort = 'points';  // 랭킹 부문
+  let rankPeriod = 'all';   // 랭킹 기간
   let viewer = null;        // 3D 인스턴스
   let currentDetail = null; // 열려 있는 상세 데이터
   let currentTab = 'story';
@@ -599,21 +601,110 @@
 
     /* ── 랭킹 ── */
     async ranking() {
-      const list = await API.get('/leaderboard');
+      const q = `?sort=${rankSort}&period=${rankPeriod}`;
+      const d = await API.get('/leaderboard' + q);
+      const unit = (d.sorts.find((x) => x.key === d.sort) || { unit: '' }).unit;
+      const top = d.rows.slice(0, 3);
+      const rest = d.rows.slice(3);
+      const periods = [['all', '전체'], ['month', '이번 달'], ['week', '이번 주']];
+
+      const medal = (r) => ['🥇', '🥈', '🥉'][r - 1] || r;
+      const num = (n) => Number(n).toLocaleString();
+
+      /* 1~3위 시상대 — 가운데가 1위 */
+      const podiumOrder = [top[1], top[0], top[2]];
+      const podium = top.length ? `
+        <div class="podium">
+          ${podiumOrder.map((u, i) => {
+            if (!u) return '<div class="pod empty"></div>';
+            const place = u.rank;
+            return `<div class="pod p${place} ${u.isMe ? 'me' : ''}">
+              <span class="pod-medal">${medal(place)}</span>
+              <span class="pod-av" style="background:${Util.avatarBg(u.avatarSeed)}">${esc(u.nickname[0])}</span>
+              <b class="pod-name">${esc(u.nickname)}</b>
+              <span class="pod-score">${num(u.score)}<i>${esc(unit)}</i></span>
+              <div class="pod-base"></div>
+            </div>`;
+          }).join('')}
+        </div>` : '';
+
+      const row = (u) => `
+        <div class="rank-row ${u.isMe ? 'me' : ''}">
+          <span class="rank-no">${u.rank}</span>
+          <span class="rank-av" style="background:${Util.avatarBg(u.avatarSeed)}">${esc(u.nickname[0])}</span>
+          <div style="min-width:0">
+            <div class="rank-name">${esc(u.nickname)}${u.isMe ? '<em>나</em>' : ''}</div>
+            <div class="rank-sub">스탬프 ${u.stamps} · 퀴즈 ${u.quizCorrect} · 기록 ${u.reviews}</div>
+          </div>
+          <span class="rank-pt">${num(u.score)}<i>${esc(unit)}</i></span>
+        </div>`;
+
+      /* 상위권 밖이면 내 순위를 따로 붙여 준다 */
+      const meOutside = d.me && !d.rows.some((r) => r.isMe);
+      const meCard = d.me ? `
+        <div class="section-h"><h3>내 순위</h3><span>${d.total}명 중</span></div>
+        <div class="my-rank">
+          <div class="mr-place">
+            <b>${d.me.rank}</b><span>위</span>
+          </div>
+          <div class="mr-body">
+            <div class="rank-name">${esc(d.me.nickname)}</div>
+            <div class="rank-sub">${num(d.me.score)}${esc(unit)} · 스탬프 ${d.me.stamps} · 배지 ${d.me.badges}</div>
+          </div>
+          ${d.me.rank > 1 ? `<div class="mr-gap">1위까지<br /><b>${num((d.rows[0] ? d.rows[0].score : 0) - d.me.score)}${esc(unit)}</b></div>` : '<div class="mr-gap">🏆<br /><b>1위</b></div>'}
+        </div>
+        ${meOutside ? '<p style="font-size:11.5px;color:var(--ink-4);margin-top:8px">상위 50위 밖이라 목록에는 보이지 않습니다.</p>' : ''}` : `
+        <div class="my-rank guest">
+          <div class="mr-body">
+            <div class="rank-name">아직 참가하지 않으셨습니다</div>
+            <div class="rank-sub">스탬프를 하나만 찍어도 순위에 오릅니다</div>
+          </div>
+          <button class="btn red" style="height:38px;padding:0 14px;font-size:13px" data-act="open-auth">시작하기</button>
+        </div>`;
+
       return {
-        title: '탐방 랭킹', kicker: `${list.length}명`,
+        title: '탐방 랭킹', kicker: `${d.total}명 참가`,
         html: `<div class="wrap">
-          <p class="lede">스탬프와 퀴즈로 모은 포인트 순위입니다.</p>
-          <div style="height:16px"></div>
-          ${list.length ? list.map((u, i) => `
-            <div class="rank-row ${i < 3 ? 'top' : ''}">
-              <span class="rank-no">${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</span>
-              <span class="rank-av" style="background:${Util.avatarBg(u.avatarSeed)}">${esc(u.nickname[0])}</span>
-              <div><div class="rank-name">${esc(u.nickname)}</div>
-                   <div class="rank-sub">스탬프 ${u.stamps}개</div></div>
-              <span class="rank-pt">${u.points.toLocaleString()}P</span>
-            </div>`).join('')
-            : '<p style="font-size:13px;color:var(--ink-4)">아직 참가자가 없습니다.</p>'}
+          <div class="chip-row" style="padding-bottom:10px">
+            ${periods.map(([k, label]) =>
+              `<button class="chip ${d.period === k ? 'on' : ''}" data-rank-period="${k}">${label}</button>`).join('')}
+          </div>
+          <div class="tabs" style="margin:0 0 18px">
+            ${d.sorts.map((x) =>
+              `<button class="tab ${d.sort === x.key ? 'on' : ''}" data-rank-sort="${x.key}">${esc(x.label)}</button>`).join('')}
+          </div>
+
+          ${d.rows.length ? podium : `
+            <div style="text-align:center;padding:40px 0">
+              <div style="font-size:44px">🏮</div>
+              <p class="lede" style="margin-top:10px">${d.period === 'all'
+                ? '아직 참가자가 없습니다. 첫 번째가 되어 보세요.'
+                : '이 기간에는 활동한 사람이 없습니다.'}</p>
+            </div>`}
+
+          ${rest.length ? `<div class="rank-list">${rest.map(row).join('')}</div>` : ''}
+
+          ${meCard}
+
+          ${d.popular.some((p) => p.visitors > 0) ? `
+            <div class="section-h"><h3>많이 찾은 곳</h3><span>방문자 기준</span></div>
+            <div class="pop-list">
+              ${d.popular.filter((p) => p.visitors > 0).map((p, i) => `
+                <button class="pop-row" data-go="${p.id}">
+                  <span class="pop-no">${i + 1}</span>
+                  <span class="pop-vis">${Illustrate.scene(p, { w: 56, h: 44, simple: true })}</span>
+                  <div style="min-width:0">
+                    <div class="rank-name">${esc(p.name)}</div>
+                    <div class="rank-sub">${esc(p.category)}</div>
+                  </div>
+                  <span class="pop-cnt">${p.visitors}<i>명</i></span>
+                </button>`).join('')}
+            </div>` : ''}
+
+          <p style="margin-top:22px;font-size:11.5px;color:var(--ink-4);line-height:1.7;text-align:center">
+            포인트는 현장 인증·퀴즈 정답·감상 기록으로 쌓입니다.<br />
+            같은 점수는 공동 순위로 표시됩니다.
+          </p>
         </div>`
       };
     },
@@ -839,6 +930,10 @@
     renderPane, sheetHtml,
     Views, openView, closeView,
     renderDrawer, openDrawer,
+    setRank(sort, period) {
+      if (sort) rankSort = sort;
+      if (period) rankPeriod = period;
+    },
     authModal, closeModal, modalError,
     renderChips, renderPeek, renderTop
   };
