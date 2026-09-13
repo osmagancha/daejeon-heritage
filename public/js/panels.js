@@ -790,7 +790,7 @@
           <div class="section-h"><h3>지물</h3><span>${d.catalog.items.filter((x) => x.unlocked).length} / ${d.catalog.items.length}</span></div>
           <div class="look-row">${d.catalog.items.map((x) => chip('item', x, x.key === d.look.item)).join('')}</div>
 
-          <div class="section-h"><h3>차림새</h3><span>여섯 단계마다 바뀝니다</span></div>
+          <div class="section-h"><h3>차림새</h3><span>기수가 오르면 모습이 바뀝니다</span></div>
           <div class="av-tiers">
             ${d.tiers.filter((t) => d.stages.some((x) => x.tier === t.tier)).map((t) => {
               const reached = st.tier >= t.tier;
