@@ -711,6 +711,104 @@
       };
     },
 
+    /* ── 내 아바타 ── */
+    async avatar() {
+      if (!Store.user) {
+        return {
+          title: '내 아바타', kicker: '',
+          html: `<div class="wrap" style="text-align:center;padding-top:60px">
+            <div style="font-size:52px">🧑‍🎓</div>
+            <h3 style="font-family:var(--font-serif);font-size:21px;margin:12px 0 6px">아직 아바타가 없습니다</h3>
+            <p class="lede" style="margin-bottom:20px">시작하면 동몽(童蒙)으로 태어나,<br />문화유산을 돌수록 자랍니다.</p>
+            <button class="btn red" data-act="open-auth">${window.LocalAPI ? '이름 정하기' : '시작하기'}</button>
+          </div>`
+        };
+      }
+
+      const d = await API.get('/avatar');
+      const st = d.stage;
+      const pct = Math.round(st.progress * 100);
+
+      const chip = (kind, x, on) => `
+        <button class="look-chip ${on ? 'on' : ''} ${x.unlocked ? '' : 'locked'}"
+                data-look-${kind}="${x.key}" ${x.unlocked ? '' : 'disabled'}
+                title="${x.unlocked ? esc(x.name) : esc(x.how || '')}">
+          ${x.hex ? `<i style="background:${x.hex}"></i>` : ''}
+          <span>${esc(x.name)}</span>
+          ${x.unlocked ? '' : `<em>${esc(x.how || '')}</em>`}
+        </button>`;
+
+      return {
+        title: '내 아바타', kicker: `${st.name} · ${st.level}/${st.max}`,
+        html: `<div class="wrap">
+          <div class="av-stage">
+            <div class="av-figure">${AvatarArt.svg({ stage: st.key, robe: d.look.robe, item: d.look.item, label: st.name })}</div>
+            <div class="av-title">
+              <b>${esc(st.name)}</b><span>${esc(st.hanja)}</span>
+            </div>
+            <p class="av-desc">${esc(st.desc)}</p>
+
+            <div class="av-progress">
+              <div class="av-progress-head">
+                <span>${esc(st.name)}</span>
+                <span>${st.next ? `다음 ${esc(st.next.name)}까지 ${st.next.left.toLocaleString()}P` : '가장 높은 단계입니다'}</span>
+              </div>
+              <div class="progress"><i style="width:${pct}%"></i></div>
+              <div class="av-progress-foot">
+                <span>${d.points.toLocaleString()}P</span>
+                <span>${st.next ? st.next.need.toLocaleString() + 'P' : '🏅'}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="av-greet ${d.greet.doneToday ? 'done' : ''}">
+            <div style="flex:1;min-width:0">
+              <b>${d.greet.doneToday ? '오늘 문안을 드렸습니다' : '오늘의 문안'}</b>
+              <p>${d.greet.streak > 0 ? `연속 ${d.greet.streak}일째` : '하루 한 번, 연속으로 할수록 점수가 늘어납니다'}</p>
+            </div>
+            ${d.greet.doneToday
+              ? `<span class="av-streak">🔥 ${d.greet.streak}</span>`
+              : `<button class="btn red" data-act="greet">+${d.greet.reward}P 받기</button>`}
+          </div>
+
+          <div class="section-h"><h3>도포</h3><span>${d.catalog.robes.filter((x) => x.unlocked).length} / ${d.catalog.robes.length}</span></div>
+          <div class="look-row">
+            ${d.catalog.robes.map((x) => chip('robe', x, x.key === d.look.robe)).join('')}
+          </div>
+
+          <div class="section-h"><h3>지물</h3><span>${d.catalog.items.filter((x) => x.unlocked).length} / ${d.catalog.items.length}</span></div>
+          <div class="look-row">
+            ${d.catalog.items.map((x) => chip('item', x, x.key === d.look.item)).join('')}
+          </div>
+
+          <div class="section-h"><h3>자란 내력</h3><span>해금 조건이 되는 기록</span></div>
+          <div class="adm-tiles">
+            ${[['스탬프', d.stats.stamps, '개'], ['현장 인증', d.stats.visits, '회'],
+               ['퀴즈 정답', d.stats.quiz, '문제'], ['감상 기록', d.stats.reviews, '편'],
+               ['배지', d.stats.badges, '개'], ['연속 문안', d.stats.streak, '일']]
+              .map(([label, v, unit]) =>
+                `<div class="adm-tile"><b>${v}<i>${unit}</i></b><span>${label}</span></div>`).join('')}
+          </div>
+
+          <div class="section-h"><h3>성장 단계</h3><span>${st.max}단계</span></div>
+          <div class="av-ladder">
+            ${d.stages.map((x, i) => {
+              const reached = d.points >= x.need;
+              const now = x.key === st.key;
+              return `<div class="av-step ${reached ? 'on' : ''} ${now ? 'now' : ''}">
+                <span class="av-step-fig">${AvatarArt.svg({ stage: x.key, robe: reached ? d.look.robe : 'white', item: 'none', label: x.name })}</span>
+                <b>${esc(x.name)}</b>
+                <span class="av-step-need">${x.need ? x.need.toLocaleString() + 'P' : '시작'}</span>
+              </div>`;
+            }).join('')}
+          </div>
+          <p style="margin-top:4px;font-size:11.5px;color:var(--ink-4);line-height:1.7;text-align:center">
+            칭호는 조선의 학제에서 이름만 빌린 놀이용 단계입니다.
+          </p>
+        </div>`
+      };
+    },
+
     /* ── 관리자 ── */
     async admin() {
       if (!Store.user || !Store.user.isAdmin) {
@@ -924,6 +1022,7 @@
     { key: 'map', em: '🗺️', label: '지도로 돌아가기' },
     { key: 'search', em: '🔎', label: '문화유산 둘러보기', tail: () => Store.heritage.length + '곳' },
     { key: 'courses', em: '🧭', label: '테마 코스', tail: () => Store.courses.length + '개' },
+    { key: 'avatar', em: '🧑‍🎓', label: '내 아바타', tail: () => Store.user ? '' : '' },
     { key: 'stamps', em: '🏮', label: '내 스탬프', tail: () => Store.me ? `${Store.visitedCount()}/${Store.heritage.length}` : '' },
     { key: 'ranking', em: '🏆', label: '탐방 랭킹' },
     { sec: '대전 알아보기' },

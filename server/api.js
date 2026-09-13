@@ -3,6 +3,7 @@
 const db = require('./db');
 const auth = require('./auth');
 const google = require('./google');
+const avatar = require('./avatar');
 const { HERITAGE, COURSES, BADGES } = require('./seed/heritage');
 const { GOODS, CITY_INTRO, CITY_FEATURES, NOTICES } = require('./seed/city');
 
@@ -540,6 +541,98 @@ on('GET', '/api/leaderboard', (ctx) => {
     popular,
     updatedAt: Date.now()
   };
+});
+
+/* --- 아바타 --- */
+
+const GREET_POINTS = 10;      // 하루 문안 기본 점수
+const GREET_MAX_STREAK = 7;   // 연속 보너스 상한
+
+/** 그 사람의 활동을 해금 조건에 쓰이는 숫자로 모은다 */
+function avatarStats(user) {
+  const visits = db.table('visits').filter((v) => v.userId === user.id);
+  return {
+    stamps: new Set(visits.map((v) => v.heritageId)).size,
+    visits: visits.filter((v) => v.method === 'gps').length,
+    reviews: db.table('reviews').filter((r) => r.userId === user.id).length,
+    quiz: new Set(db.table('quizLogs')
+      .filter((q) => q.userId === user.id && q.correct)
+      .map((q) => q.heritageId + ':' + q.qIndex)).size,
+    badges: db.table('badges').filter((b) => b.userId === user.id).length,
+    streak: (user.greet && user.greet.streak) || 0
+  };
+}
+
+/** 한국 시간 기준의 날짜 문자열 (문안은 하루 한 번) */
+function todayKey(ts) {
+  return new Date(ts + 9 * 3600e3).toISOString().slice(0, 10);
+}
+
+function avatarPayload(user) {
+  const stats = avatarStats(user);
+  const look = avatar.sanitize(user.avatar, stats);
+  if (!user.avatar || user.avatar.robe !== look.robe || user.avatar.item !== look.item) {
+    user.avatar = look;            // 조건을 잃은 꾸미기는 조용히 되돌린다
+    db.save();
+  }
+  const greet = user.greet || { streak: 0, lastDay: null, total: 0 };
+  return {
+    stage: avatar.stageOf(user.points || 0),
+    stages: avatar.STAGES.map((x) => ({ key: x.key, name: x.name, hanja: x.hanja, need: x.need })),
+    points: user.points || 0,
+    look,
+    stats,
+    catalog: avatar.catalog(stats),
+    greet: {
+      streak: greet.streak,
+      total: greet.total || 0,
+      doneToday: greet.lastDay === todayKey(Date.now()),
+      reward: GREET_POINTS * Math.min(GREET_MAX_STREAK, (greet.streak || 0) + 1)
+    },
+    seed: user.avatarSeed || 0,
+    nickname: user.nickname
+  };
+}
+
+on('GET', '/api/avatar', (ctx) => avatarPayload(needAuth(ctx.user)));
+
+on('PATCH', '/api/avatar', (ctx) => {
+  const user = needAuth(ctx.user);
+  const stats = avatarStats(user);
+  const b = ctx.body || {};
+
+  const wanted = {
+    robe: b.robe !== undefined ? b.robe : (user.avatar && user.avatar.robe),
+    item: b.item !== undefined ? b.item : (user.avatar && user.avatar.item)
+  };
+  const clean = avatar.sanitize(wanted, stats);
+  if (b.robe !== undefined && clean.robe !== b.robe) bad('아직 열리지 않은 도포입니다.');
+  if (b.item !== undefined && clean.item !== b.item) bad('아직 열리지 않은 물건입니다.');
+
+  user.avatar = clean;
+  db.save();
+  return avatarPayload(user);
+});
+
+/** 하루 한 번 문안 — 연속으로 할수록 점수가 는다 */
+on('POST', '/api/avatar/greet', (ctx) => {
+  const user = needAuth(ctx.user);
+  const today = todayKey(Date.now());
+  const yesterday = todayKey(Date.now() - 864e5);
+  const greet = user.greet || { streak: 0, lastDay: null, total: 0 };
+
+  if (greet.lastDay === today) throw new HttpError(409, '오늘은 이미 문안을 드렸습니다.');
+
+  greet.streak = greet.lastDay === yesterday ? (greet.streak || 0) + 1 : 1;
+  greet.lastDay = today;
+  greet.total = (greet.total || 0) + 1;
+  user.greet = greet;
+
+  const earned = GREET_POINTS * Math.min(GREET_MAX_STREAK, greet.streak);
+  addPoints(user, earned);
+  db.save();
+
+  return { ok: true, earned, streak: greet.streak, avatar: avatarPayload(user) };
 });
 
 /* --- 관리자 --- */

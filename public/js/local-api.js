@@ -23,7 +23,9 @@
     reviews: [],     // {id, heritageId, rating, body, at}
     quizLogs: [],    // {heritageId, qIndex, correct, at}
     orders: [],      // {id, goodsId, qty, pointsSpent, at, status}
-    badges: []       // {badgeId, at}
+    badges: [],      // {badgeId, at}
+    avatar: null,    // {robe, item}
+    greet: null      // {streak, lastDay, total}
   };
 
   let cache = null;
@@ -347,6 +349,88 @@
     s.orders.push(order);
     save();
     return { ok: true, order: Object.assign({}, order, { goods: g }), points: u.points };
+  });
+
+  /* --- 아바타 --- */
+
+  const GREET_POINTS = 10;
+  const GREET_MAX_STREAK = 7;
+
+  function avatarStats() {
+    const s = load();
+    return {
+      stamps: new Set(s.visits.map((v) => v.heritageId)).size,
+      visits: s.visits.filter((v) => v.method === 'gps').length,
+      reviews: s.reviews.length,
+      quiz: new Set(s.quizLogs.filter((q) => q.correct).map((q) => q.heritageId + ':' + q.qIndex)).size,
+      badges: s.badges.length,
+      streak: (s.greet && s.greet.streak) || 0
+    };
+  }
+
+  const todayKey = (ts) => new Date(ts + 9 * 3600e3).toISOString().slice(0, 10);
+
+  function avatarPayload() {
+    const s = load();
+    const u = needUser();
+    const stats = avatarStats();
+    const look = AvatarRules.sanitize(s.avatar, stats);
+    s.avatar = look;
+    const greet = s.greet || { streak: 0, lastDay: null, total: 0 };
+    return {
+      stage: AvatarRules.stageOf(u.points || 0),
+      stages: AvatarRules.STAGES.map((x) => ({ key: x.key, name: x.name, hanja: x.hanja, need: x.need })),
+      points: u.points || 0,
+      look,
+      stats,
+      catalog: AvatarRules.catalog(stats),
+      greet: {
+        streak: greet.streak,
+        total: greet.total || 0,
+        doneToday: greet.lastDay === todayKey(Date.now()),
+        reward: GREET_POINTS * Math.min(GREET_MAX_STREAK, (greet.streak || 0) + 1)
+      },
+      seed: u.avatarSeed || 0,
+      nickname: u.nickname
+    };
+  }
+
+  on('GET', '/avatar', () => { needUser(); const r = avatarPayload(); save(); return r; });
+
+  on('PATCH', '/avatar', (ctx) => {
+    needUser();
+    const s = load();
+    const stats = avatarStats();
+    const b = ctx.body || {};
+    const wanted = {
+      robe: b.robe !== undefined ? b.robe : (s.avatar && s.avatar.robe),
+      item: b.item !== undefined ? b.item : (s.avatar && s.avatar.item)
+    };
+    const clean = AvatarRules.sanitize(wanted, stats);
+    if (b.robe !== undefined && clean.robe !== b.robe) throw new LocalError(400, '아직 열리지 않은 도포입니다.');
+    if (b.item !== undefined && clean.item !== b.item) throw new LocalError(400, '아직 열리지 않은 물건입니다.');
+    s.avatar = clean;
+    save();
+    return avatarPayload();
+  });
+
+  on('POST', '/avatar/greet', () => {
+    const u = needUser();
+    const s = load();
+    const today = todayKey(Date.now());
+    const yesterday = todayKey(Date.now() - 864e5);
+    const greet = s.greet || { streak: 0, lastDay: null, total: 0 };
+    if (greet.lastDay === today) throw new LocalError(409, '오늘은 이미 문안을 드렸습니다.');
+
+    greet.streak = greet.lastDay === yesterday ? (greet.streak || 0) + 1 : 1;
+    greet.lastDay = today;
+    greet.total = (greet.total || 0) + 1;
+    s.greet = greet;
+
+    const earned = GREET_POINTS * Math.min(GREET_MAX_STREAK, greet.streak);
+    u.points += earned;
+    save();
+    return { ok: true, earned, streak: greet.streak, avatar: avatarPayload() };
   });
 
   /* ------------------------------------------------------------- 디스패치 */

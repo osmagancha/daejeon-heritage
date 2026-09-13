@@ -319,6 +319,18 @@
       return;
     }
 
+    /* 아바타 꾸미기 */
+    const lookRobe = t.closest('[data-look-robe]');
+    const lookItem = t.closest('[data-look-item]');
+    if (lookRobe || lookItem) {
+      const patch = lookRobe ? { robe: lookRobe.dataset.lookRobe } : { item: lookItem.dataset.lookItem };
+      try {
+        await API.patch('/avatar', patch);
+        UI.openView('avatar');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
     /* 관리자 */
     const at = t.closest('[data-admin-tab]');
     if (at) { UI.setAdmin(at.dataset.adminTab, ''); UI.openView('admin'); return; }
@@ -389,6 +401,15 @@
       UI.closeView();
       body.classList.add('sheet-peek');
       MapView.select(UI.currentDetail.id);
+    }
+    else if (a === 'greet') {
+      try {
+        const r = await API.post('/avatar/greet');
+        UI.toast(`문안 인사 +${r.earned}P · 연속 ${r.streak}일`, '🌅');
+        await Store.refreshMe();
+        syncAll();
+        UI.openView('avatar');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
     }
     else if (a === 'checkin-gps') checkin(true);
     else if (a === 'checkin-manual') checkin(false);

@@ -857,6 +857,70 @@ button.card:hover { box-shadow: var(--shadow-md); }
 .pop-vis svg { display: block; width: 100%; height: 100%; }
 .pop-cnt { margin-left: auto; font-size: 14px; font-weight: 700; flex: none; font-variant-numeric: tabular-nums; }
 
+/* ══════════════════════ 아바타 ══════════════════════ */
+
+.avatar-art { display: block; width: 100%; height: 100%; }
+
+.av-stage {
+  padding: 22px 20px 20px; border-radius: var(--r-lg); text-align: center;
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-2) 0%, var(--paper) 70%);
+  border: 1px solid var(--line-2); box-shadow: var(--shadow-sm);
+}
+.av-figure { width: 172px; height: 230px; margin: 0 auto; }
+.av-figure .av-body { transform-origin: 100px 230px; animation: avBreathe 4.2s ease-in-out infinite; }
+.av-figure .av-head { transform-origin: 100px 96px; animation: avNod 4.2s ease-in-out infinite; }
+@keyframes avBreathe { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.012); } }
+@keyframes avNod { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+.av-title { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-top: 6px; }
+.av-title b { font-family: var(--font-serif); font-size: 28px; }
+.av-title span { font-size: 14px; color: var(--ink-4); }
+.av-desc { margin-top: 8px; font-size: 13.5px; line-height: 1.7; color: var(--ink-3); word-break: keep-all; }
+
+.av-progress { margin-top: 20px; text-align: left; }
+.av-progress-head, .av-progress-foot { display: flex; justify-content: space-between; }
+.av-progress-head { font-size: 12px; font-weight: 700; color: var(--ink-2); margin-bottom: 7px; }
+.av-progress-head span:last-child { color: var(--ink-4); font-weight: 600; }
+.av-progress-foot { font-size: 10.5px; color: var(--ink-4); margin-top: 5px; font-variant-numeric: tabular-nums; }
+
+.av-greet {
+  display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 14px 16px;
+  border-radius: var(--r-md); background: var(--paper); border: 1.5px solid var(--red);
+}
+.av-greet.done { border-color: var(--line); border-style: dashed; }
+.av-greet b { font-size: 14px; }
+.av-greet p { font-size: 11.5px; color: var(--ink-4); margin-top: 2px; }
+.av-greet .btn { height: 38px; padding: 0 14px; font-size: 13px; flex: none; }
+.av-streak { font-size: 15px; font-weight: 700; color: var(--red); flex: none; }
+
+.look-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.look-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px;
+  border: 1.5px solid var(--line); background: var(--paper); font-size: 12.5px; font-weight: 600;
+  color: var(--ink-2); transition: border-color .2s, background .2s;
+}
+.look-chip i { width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
+.look-chip.on { border-color: var(--red); background: color-mix(in srgb, var(--red) 9%, transparent); color: var(--ink); }
+.look-chip.locked { opacity: .5; cursor: not-allowed; }
+.look-chip em { font-style: normal; font-size: 10.5px; color: var(--ink-4); font-weight: 600; }
+.look-chip:not(.locked):hover { border-color: var(--ink-4); }
+
+.av-ladder { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+.av-step {
+  display: grid; justify-items: center; gap: 2px; padding: 8px 2px 9px;
+  border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line-2);
+  opacity: .45; filter: grayscale(1);
+}
+.av-step.on { opacity: 1; filter: none; }
+.av-step.now { border-color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); }
+.av-step-fig { width: 100%; aspect-ratio: 200/268; }
+.av-step b { font-size: 10.5px; }
+.av-step-need { font-size: 9px; color: var(--ink-4); font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .av-figure .av-body, .av-figure .av-head { animation: none; }
+}
+
 /* ══════════════════════ 관리자 ══════════════════════ */
 
 .adm-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(98px, 1fr)); gap: 8px; margin-bottom: 6px; }
