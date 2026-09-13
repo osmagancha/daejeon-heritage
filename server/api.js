@@ -559,7 +559,8 @@ function avatarStats(user) {
       .filter((q) => q.userId === user.id && q.correct)
       .map((q) => q.heritageId + ':' + q.qIndex)).size,
     badges: db.table('badges').filter((b) => b.userId === user.id).length,
-    streak: (user.greet && user.greet.streak) || 0
+    streak: (user.greet && user.greet.streak) || 0,
+    level: avatar.stageOf(user.points || 0).level
   };
 }
 
@@ -578,7 +579,8 @@ function avatarPayload(user) {
   const greet = user.greet || { streak: 0, lastDay: null, total: 0 };
   return {
     stage: avatar.stageOf(user.points || 0),
-    stages: avatar.STAGES.map((x) => ({ key: x.key, name: x.name, hanja: x.hanja, need: x.need })),
+    stages: avatar.STAGES.map((x) => ({ key: x.key, level: x.level, name: x.name, hanja: x.hanja, need: x.need, tier: x.tier, emoji: x.emoji, desc: x.desc })),
+    tiers: avatar.TIERS,
     points: user.points || 0,
     look,
     stats,

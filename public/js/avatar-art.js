@@ -31,12 +31,12 @@
 
   /* ───────────────────── 머리쓰개 ───────────────────── */
 
-  function headwear(stage) {
+  function headwear(tier) {
     // 얼굴은 y 39~97, 눈은 y 66. 머리쓰개는 y 58 아래로 내려오지 않는다.
     const hairCap = `<path d="M73 60c0-19 12-31 27-31s27 12 27 31c0 2 0 4-1 6-5-11-14-17-26-17s-21 6-26 17c-1-2-1-4-1-6z" fill="${HAIR}"/>`;
 
-    switch (stage) {
-      case 'dongmong':   // 댕기머리 — 가운데 가르마에 뒤로 땋은 머리
+    switch (tier) {
+      case 1:   // 댕기머리 — 가운데 가르마에 뒤로 땋은 머리
         return `
           ${hairCap}
           <path d="M100 29v14" stroke="#15120F" stroke-width="2" opacity=".7"/>
@@ -44,36 +44,32 @@
                 stroke-linecap="round" fill="none"/>
           <circle cx="127" cy="116" r="5.5" fill="#B8392C"/>`;
 
-      case 'yusaeng':    // 유건 — 부드러운 사각 두건
+      case 2:            // 유건 — 부드러운 사각 두건
         return `
           ${hairCap}
           <path d="M75 56V38c0-4 3-7 7-7h36c4 0 7 3 7 7v18c0 2-1 3-3 3H78c-2 0-3-1-3-3z" fill="#3E3A36"/>
           <path d="M78 31h44c3 0 5 2 5 5v4H73v-4c0-3 2-5 5-5z" fill="#4E4945"/>
           <path d="M82 22h36c3 0 5 2 5 5v5H77v-5c0-3 2-5 5-5z" fill="#454039"/>`;
 
-      case 'jinsa':      // 정자관 — 층이 진 관
-        return `
-          ${hairCap}
-          <path d="M78 56V44c0-4 3-6 6-6h32c3 0 6 2 6 6v12z" fill="#34312D"/>
-          <path d="M85 40V28c0-4 3-7 7-7h16c4 0 7 3 7 7v12z" fill="#413C38"/>
-          <path d="M92 23V14c0-3 3-6 6-6h4c3 0 6 3 6 6v9z" fill="#4B4640"/>`;
-
-      case 'seonbi':     // 갓 — 넓은 챙에 통모자
-      case 'haksa':
+      case 3:            // 갓 — 넓은 챙에 통모자
         return `
           ${hairCap}
           <ellipse cx="100" cy="49" rx="53" ry="10" fill="#241F1B" opacity=".9"/>
           <ellipse cx="100" cy="47" rx="53" ry="10" fill="#3A342E" opacity=".92"/>
           <path d="M83 20c0-6 7-10 17-10s17 4 17 10v27H83z" fill="#2E2924"/>
           <ellipse cx="100" cy="20" rx="17" ry="6" fill="#3E3832"/>
-          <path d="M83 34h34" stroke="#1D1A16" stroke-width="1.5" opacity=".55"/>
-          ${stage === 'haksa'
-            ? '<path d="M83 40h34" stroke="#C9A227" stroke-width="2.5" opacity=".9"/>' +
-              '<path d="M78 50c0 10 4 18 10 22" stroke="#2E2924" stroke-width="2" fill="none" opacity=".5"/>' +
-              '<path d="M122 50c0 10-4 18-10 22" stroke="#2E2924" stroke-width="2" fill="none" opacity=".5"/>'
-            : ''}`;
+          <path d="M83 34h34" stroke="#1D1A16" stroke-width="1.5" opacity=".55"/>`;
 
-      default:           // 대제학 — 사모(관모)와 양각
+      case 4:            // 사모(관모)와 양각
+        return `
+          ${hairCap}
+          <path d="M81 56V26c0-7 8-12 19-12s19 5 19 12v30z" fill="#1E1B18"/>
+          <path d="M81 40h38v16H81z" fill="#2A2623"/>
+          <ellipse cx="100" cy="26" rx="19" ry="7" fill="#2A2623"/>
+          <path d="M80 40c-15 1-25 5-25 9 0 3 6 5 14 5 7 0 11-3 11-7z" fill="#1E1B18"/>
+          <path d="M120 40c15 1 25 5 25 9 0 3-6 5-14 5-7 0-11-3-11-7z" fill="#1E1B18"/>`;
+
+      default:           // 문형 — 사모에 금장
         return `
           ${hairCap}
           <path d="M81 56V26c0-7 8-12 19-12s19 5 19 12v30z" fill="#1E1B18"/>
@@ -130,12 +126,12 @@
 
   function svg(opts) {
     opts = opts || {};
-    const stage = opts.stage || 'dongmong';
+    const tier = Math.max(1, Math.min(5, opts.tier || 1));
     const robeHex = ROBE_HEX[opts.robe] || ROBE_HEX.white;
     const collar = collarOf(robeHex);
     const item = opts.item || 'none';
     const uid = 'av' + Math.random().toString(36).slice(2, 8);
-    const grand = stage === 'daejehak';
+    const grand = tier === 5;
 
     return `
 <svg viewBox="0 0 200 268" xmlns="http://www.w3.org/2000/svg" class="avatar-art" role="img"
@@ -184,11 +180,11 @@
     </g>
     <path d="M100 72v5" stroke="${SKIN_SHADE}" stroke-width="2" stroke-linecap="round"/>
     <path d="M95 83c3 2 7 2 10 0" stroke="${LINE}" stroke-width="2.2" stroke-linecap="round" fill="none"/>
-    ${['haksa', 'daejehak'].includes(stage)
+    ${tier === 5
       ? `<path d="M93 90c2 9 4 16 7 21 3-5 5-12 7-21z" fill="#E8E2D8" opacity=".95"/>
          <path d="M86 78c-2 7-1 13 2 17" stroke="#E8E2D8" stroke-width="3" stroke-linecap="round" fill="none" opacity=".85"/>
          <path d="M114 78c2 7 1 13-2 17" stroke="#E8E2D8" stroke-width="3" stroke-linecap="round" fill="none" opacity=".85"/>` : ''}
-    ${headwear(stage)}
+    ${headwear(tier)}
   </g>
 </svg>`;
   }

@@ -28,6 +28,8 @@
     topAvatar: $('#top-avatar')
   };
 
+  let avatar3d = null;        // 아바타 3D 인스턴스
+  let avatarLook = null;      // 현재 차림새
   let adminTab = 'overview';  // 관리자 화면 탭
   let adminQuery = '';        // 사용자 검색어
   let rankSort = 'points';  // 랭킹 부문
@@ -345,6 +347,14 @@
     el.sheetScroll.innerHTML = sheetHtml(currentDetail);
     renderPane();
     el.sheetScroll.scrollTop = scroll;
+  }
+
+  /** 아바타 3D 를 화면에 올린다 */
+  function mountAvatar3D() {
+    const box = document.getElementById('av-3d');
+    if (!box || !avatarLook) return;
+    if (avatar3d) { avatar3d.dispose(); avatar3d = null; }
+    avatar3d = Avatar3D.mount(box, avatarLook);
   }
 
   /* ══════════════════════ 전체화면 뷰 ══════════════════════ */
@@ -719,7 +729,7 @@
           html: `<div class="wrap" style="text-align:center;padding-top:60px">
             <div style="font-size:52px">🧑‍🎓</div>
             <h3 style="font-family:var(--font-serif);font-size:21px;margin:12px 0 6px">아직 아바타가 없습니다</h3>
-            <p class="lede" style="margin-bottom:20px">시작하면 동몽(童蒙)으로 태어나,<br />문화유산을 돌수록 자랍니다.</p>
+            <p class="lede" style="margin-bottom:20px">시작하면 동몽(童蒙)으로 태어나,<br />서른 단계를 거쳐 자랍니다.</p>
             <button class="btn red" data-act="open-auth">${window.LocalAPI ? '이름 정하기' : '시작하기'}</button>
           </div>`
         };
@@ -728,35 +738,38 @@
       const d = await API.get('/avatar');
       const st = d.stage;
       const pct = Math.round(st.progress * 100);
+      const robeHex = (d.catalog.robes.find((r) => r.key === d.look.robe) || {}).hex || '#EDE6D6';
+      avatarLook = { form: st.form, robeHex, item: d.look.item };
 
       const chip = (kind, x, on) => `
         <button class="look-chip ${on ? 'on' : ''} ${x.unlocked ? '' : 'locked'}"
-                data-look-${kind}="${x.key}" ${x.unlocked ? '' : 'disabled'}
-                title="${x.unlocked ? esc(x.name) : esc(x.how || '')}">
+                data-look-${kind}="${x.key}" ${x.unlocked ? '' : 'disabled'}>
           ${x.hex ? `<i style="background:${x.hex}"></i>` : ''}
           <span>${esc(x.name)}</span>
           ${x.unlocked ? '' : `<em>${esc(x.how || '')}</em>`}
         </button>`;
 
+      // 다음 세 단계만 미리 보여 준다 (서른 개를 다 늘어놓으면 읽기 어렵다)
+      const upcoming = d.stages.filter((x) => x.level > st.level).slice(0, 3);
+
       return {
-        title: '내 아바타', kicker: `${st.name} · ${st.level}/${st.max}`,
+        title: '내 아바타', kicker: `${st.level} / ${st.max}단계`,
         html: `<div class="wrap">
           <div class="av-stage">
-            <div class="av-figure">${AvatarArt.svg({ stage: st.key, robe: d.look.robe, item: d.look.item, label: st.name })}</div>
-            <div class="av-title">
-              <b>${esc(st.name)}</b><span>${esc(st.hanja)}</span>
-            </div>
+            <div class="av-3d" id="av-3d"></div>
+            <div class="av-level">Lv.${st.level}<span>${esc(st.tierName)}</span></div>
+            <div class="av-title"><b>${esc(st.name)}</b><span>${esc(st.hanja)}</span></div>
             <p class="av-desc">${esc(st.desc)}</p>
 
             <div class="av-progress">
               <div class="av-progress-head">
                 <span>${esc(st.name)}</span>
-                <span>${st.next ? `다음 ${esc(st.next.name)}까지 ${st.next.left.toLocaleString()}P` : '가장 높은 단계입니다'}</span>
+                <span>${st.next ? `다음 ${esc(st.next.name)}까지 ${st.next.left.toLocaleString()}P` : '마지막 단계입니다'}</span>
               </div>
               <div class="progress"><i style="width:${pct}%"></i></div>
               <div class="av-progress-foot">
                 <span>${d.points.toLocaleString()}P</span>
-                <span>${st.next ? st.next.need.toLocaleString() + 'P' : '🏅'}</span>
+                <span>${st.next ? st.next.need.toLocaleString() + 'P' : '🏅 완주'}</span>
               </div>
             </div>
           </div>
@@ -772,14 +785,41 @@
           </div>
 
           <div class="section-h"><h3>도포</h3><span>${d.catalog.robes.filter((x) => x.unlocked).length} / ${d.catalog.robes.length}</span></div>
-          <div class="look-row">
-            ${d.catalog.robes.map((x) => chip('robe', x, x.key === d.look.robe)).join('')}
-          </div>
+          <div class="look-row">${d.catalog.robes.map((x) => chip('robe', x, x.key === d.look.robe)).join('')}</div>
 
           <div class="section-h"><h3>지물</h3><span>${d.catalog.items.filter((x) => x.unlocked).length} / ${d.catalog.items.length}</span></div>
-          <div class="look-row">
-            ${d.catalog.items.map((x) => chip('item', x, x.key === d.look.item)).join('')}
+          <div class="look-row">${d.catalog.items.map((x) => chip('item', x, x.key === d.look.item)).join('')}</div>
+
+          <div class="section-h"><h3>차림새</h3><span>여섯 단계마다 바뀝니다</span></div>
+          <div class="av-tiers">
+            ${d.tiers.filter((t) => d.stages.some((x) => x.tier === t.tier)).map((t) => {
+              const reached = st.tier >= t.tier;
+              // 사람 단계는 아바타 그림으로, 영물부터는 그 기수의 첫 이모지로 보여 준다
+              const mark = (d.stages.find((x) => x.tier === t.tier && x.emoji) || {}).emoji;
+              const fig = mark
+                ? `<span class="av-tier-emoji">${mark}</span>`
+                : AvatarArt.svg({ tier: t.tier, robe: reached ? d.look.robe : 'white', item: 'none', label: t.name });
+              return `<div class="av-tier ${reached ? 'on' : ''} ${st.tier === t.tier ? 'now' : ''}">
+                <span class="av-tier-fig">${fig}</span>
+                <b>${esc(t.name)}</b>
+                <span class="av-tier-wear">${esc(t.wear)}</span>
+              </div>`;
+            }).join('')}
           </div>
+
+          ${upcoming.length ? `
+            <div class="section-h"><h3>앞으로</h3><span>다음 세 단계</span></div>
+            <div class="av-next">
+              ${upcoming.map((x) => `
+                <div class="av-next-row">
+                  <span class="av-next-lv">${x.level}</span>
+                  <div style="flex:1;min-width:0">
+                    <div class="rank-name">${esc(x.name)} <span style="font-weight:500;color:var(--ink-4)">${esc(x.hanja)}</span></div>
+                    <div class="rank-sub">${(x.need - d.points).toLocaleString()}P 남음</div>
+                  </div>
+                  <span class="av-next-need">${x.need.toLocaleString()}P</span>
+                </div>`).join('')}
+            </div>` : ''}
 
           <div class="section-h"><h3>자란 내력</h3><span>해금 조건이 되는 기록</span></div>
           <div class="adm-tiles">
@@ -790,22 +830,12 @@
                 `<div class="adm-tile"><b>${v}<i>${unit}</i></b><span>${label}</span></div>`).join('')}
           </div>
 
-          <div class="section-h"><h3>성장 단계</h3><span>${st.max}단계</span></div>
-          <div class="av-ladder">
-            ${d.stages.map((x, i) => {
-              const reached = d.points >= x.need;
-              const now = x.key === st.key;
-              return `<div class="av-step ${reached ? 'on' : ''} ${now ? 'now' : ''}">
-                <span class="av-step-fig">${AvatarArt.svg({ stage: x.key, robe: reached ? d.look.robe : 'white', item: 'none', label: x.name })}</span>
-                <b>${esc(x.name)}</b>
-                <span class="av-step-need">${x.need ? x.need.toLocaleString() + 'P' : '시작'}</span>
-              </div>`;
-            }).join('')}
-          </div>
-          <p style="margin-top:4px;font-size:11.5px;color:var(--ink-4);line-height:1.7;text-align:center">
-            칭호는 조선의 학제에서 이름만 빌린 놀이용 단계입니다.
+          <p style="margin-top:18px;font-size:11.5px;color:var(--ink-4);line-height:1.7;text-align:center">
+            칭호는 조선의 학제와 관직에서 이름만 빌린 놀이용 단계입니다.<br />
+            하루도 거르지 않고 문안을 드려도 마지막 단계까지 약 5년이 걸립니다.
           </p>
-        </div>`
+        </div>`,
+        after() { mountAvatar3D(); }
       };
     },
 
@@ -992,6 +1022,7 @@
 
   async function openView(key) {
     Audio.stop();
+    if (avatar3d) { avatar3d.dispose(); avatar3d = null; }
     let v;
     try {
       v = await Views[key]();
@@ -1010,6 +1041,7 @@
   }
 
   function closeView() {
+    if (avatar3d) { avatar3d.dispose(); avatar3d = null; }
     body.classList.remove('view-open');
     el.view.setAttribute('aria-hidden', 'true');
     el.view.dataset.key = '';

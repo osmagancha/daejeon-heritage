@@ -364,7 +364,8 @@
       reviews: s.reviews.length,
       quiz: new Set(s.quizLogs.filter((q) => q.correct).map((q) => q.heritageId + ':' + q.qIndex)).size,
       badges: s.badges.length,
-      streak: (s.greet && s.greet.streak) || 0
+      streak: (s.greet && s.greet.streak) || 0,
+      level: AvatarRules.stageOf((s.user && s.user.points) || 0).level
     };
   }
 
@@ -379,7 +380,8 @@
     const greet = s.greet || { streak: 0, lastDay: null, total: 0 };
     return {
       stage: AvatarRules.stageOf(u.points || 0),
-      stages: AvatarRules.STAGES.map((x) => ({ key: x.key, name: x.name, hanja: x.hanja, need: x.need })),
+      stages: AvatarRules.STAGES.map((x) => ({ key: x.key, level: x.level, name: x.name, hanja: x.hanja, need: x.need, tier: x.tier, emoji: x.emoji, desc: x.desc })),
+      tiers: AvatarRules.TIERS,
       points: u.points || 0,
       look,
       stats,
