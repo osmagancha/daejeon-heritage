@@ -21,7 +21,15 @@ class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 const bad = (msg) => { throw new HttpError(400, msg); };
-const needAuth = (user) => { if (!user) throw new HttpError(401, '로그인이 필요합니다.'); return user; };
+const needAuth = (user) => {
+  if (!user) throw new HttpError(401, '로그인이 필요합니다.');
+  const sus = auth.suspension(user);
+  if (sus) {
+    const until = sus.until ? new Date(sus.until).toLocaleString('ko-KR') + ' 까지' : '해제될 때까지';
+    throw new HttpError(403, `이용이 정지된 계정입니다 (${until}). 사유: ${sus.reason || '기재 없음'}`);
+  }
+  return user;
+};
 
 function distanceM(a, b, c, d) {
   const R = 6371000;
@@ -220,6 +228,11 @@ on('POST', '/api/auth/login', (ctx) => {
   }
   if (!user || !auth.verifyPassword(String(password || ''), user.salt, user.passwordHash)) {
     throw new HttpError(401, '이메일 또는 비밀번호가 올바르지 않습니다.');
+  }
+  const sus = auth.suspension(user);
+  if (sus) {
+    const until = sus.until ? new Date(sus.until).toLocaleString('ko-KR') + ' 까지' : '해제될 때까지';
+    throw new HttpError(403, `이용이 정지된 계정입니다 (${until}). 사유: ${sus.reason || '기재 없음'}`);
   }
   const token = auth.createSession(user.id, ctx.ua);
   return { token, user: auth.publicUser(user) };
@@ -1163,6 +1176,18 @@ const needAdmin = (user) => {
 /** 한 사람에게 딸린 기록을 모두 찾아 지운다 */
 function purgeUser(userId) {
   const removed = {};
+  // 친구 관계와 신청은 짝으로 남으므로 따로 지운다
+  for (const [name, hit] of [
+    ['friends', (r) => r.a === userId || r.b === userId],
+    ['friendReqs', (r) => r.from === userId || r.to === userId],
+    ['battles', (r) => r.aId === userId || r.bId === userId]
+  ]) {
+    const rows = db.table(name);
+    const before = rows.length;
+    for (let i = rows.length - 1; i >= 0; i--) if (hit(rows[i])) rows.splice(i, 1);
+    removed[name] = before - rows.length;
+  }
+
   for (const name of ['sessions', 'visits', 'favorites', 'reviews', 'quizLogs', 'orders', 'badges']) {
     const rows = db.table(name);
     const before = rows.length;
@@ -1192,7 +1217,19 @@ function adminUserRow(u) {
     quizCorrect: db.table('quizLogs').filter((q) => q.userId === u.id && q.correct).length,
     badges: db.table('badges').filter((b) => b.userId === u.id).length,
     createdAt: u.createdAt,
-    lastAt: visits.length ? Math.max(...visits.map((v) => v.at)) : 0
+    lastAt: visits.length ? Math.max(...visits.map((v) => v.at)) : 0,
+    gems: u.gems || 0,
+    suspended: auth.suspension(u) || null,
+    battle: u.battle ? {
+      rating: u.battle.rating,
+      weapon: battle.weaponOf(u.battle.weapon).name,
+      weaponKey: u.battle.weapon,
+      plus: u.battle.plus,
+      wins: u.battle.wins, losses: u.battle.losses, draws: u.battle.draws,
+      todayCount: u.battle.count || 0,
+      statsSpent: battle.spentPoints(u.battle.stats)
+    } : null,
+    weapons: battle.WEAPONS.map((w) => ({ key: w.key, name: w.name }))
   };
 }
 
@@ -1263,19 +1300,122 @@ on('PATCH', '/api/admin/users/:id', (ctx) => {
   const user = db.table('users').find((u) => u.id === ctx.params.id);
   if (!user) throw new HttpError(404, '사용자를 찾을 수 없습니다.');
   const b = ctx.body || {};
+  const changed = [];
 
-  if (b.points !== undefined) {
-    const p = Math.round(Number(b.points));
-    if (!Number.isFinite(p) || p < 0 || p > 1000000) bad('포인트는 0 이상 1,000,000 이하여야 합니다.');
-    user.points = p;
-  }
+  const numField = (key, min, max, label, apply) => {
+    if (b[key] === undefined) return;
+    const v = Math.round(Number(b[key]));
+    if (!Number.isFinite(v) || v < min || v > max) {
+      bad(`${label}은(는) ${min.toLocaleString()} 이상 ${max.toLocaleString()} 이하여야 합니다.`);
+    }
+    apply(v);
+    changed.push(`${label} ${v.toLocaleString()}`);
+  };
+
+  numField('points', 0, 10000000, '포인트', (v) => { user.points = v; });
+  numField('gems', 0, 100000, '옥', (v) => { user.gems = v; });
+
   if (b.nickname !== undefined) {
     const n = String(b.nickname).trim();
     if (n.length < 2 || n.length > 16) bad('이름은 2~16자로 입력해 주세요.');
     user.nickname = n;
+    changed.push(`이름 ${n}`);
+  }
+
+  // 겨루기 쪽 값들
+  const hasBattleField = ['rating', 'plus', 'weapon', 'resetStats', 'resetRecord', 'resetToday']
+    .some((k) => b[k] !== undefined);
+  if (hasBattleField) {
+    if (!user.battle) user.battle = blankBattle();
+    const bt = user.battle;
+
+    numField('rating', 100, 5000, '등급', (v) => { bt.rating = v; });
+    numField('plus', 0, battle.MAX_ENHANCE, '강화 단계', (v) => { bt.plus = v; });
+
+    if (b.weapon !== undefined) {
+      const w = battle.WEAPONS.find((x) => x.key === b.weapon);
+      if (!w) bad('알 수 없는 무기입니다.');
+      bt.weapon = w.key;
+      if (!bt.owned.includes(w.key)) bt.owned.push(w.key);
+      changed.push(`무기 ${w.name}`);
+    }
+    if (b.resetStats) { bt.stats = { str: 0, agi: 0, vit: 0, spi: 0 }; changed.push('스탯 초기화'); }
+    if (b.resetRecord) {
+      bt.wins = bt.losses = bt.draws = bt.streak = bt.bestStreak = 0;
+      bt.rating = battle.BASE_RATING;
+      changed.push('전적 초기화');
+    }
+    if (b.resetToday) { bt.count = 0; changed.push('오늘 횟수 초기화'); }
+  }
+
+  if (!changed.length) bad('바꿀 내용이 없습니다.');
+  db.save();
+  return { ok: true, user: adminUserRow(user), changed, by: me.nickname };
+});
+
+/** 계정 정지 — 기간을 두거나 무기한으로 */
+on('POST', '/api/admin/users/:id/suspend', (ctx) => {
+  const me = needAdmin(ctx.user);
+  const user = db.table('users').find((u) => u.id === ctx.params.id);
+  if (!user) throw new HttpError(404, '사용자를 찾을 수 없습니다.');
+  if (user.id === me.id) bad('자기 계정은 정지할 수 없습니다.');
+  if (auth.isAdmin(user)) bad('다른 관리자 계정은 정지할 수 없습니다.');
+
+  const b = ctx.body || {};
+  const days = b.days === null || b.days === undefined ? null : Number(b.days);
+  if (days !== null && (!Number.isFinite(days) || days < 1 || days > 3650)) {
+    bad('정지 기간은 1일 이상 3650일 이하로 정해 주세요.');
+  }
+  const reason = String(b.reason || '').trim().slice(0, 200);
+
+  user.suspended = {
+    at: Date.now(),
+    until: days === null ? null : Date.now() + days * 864e5,
+    reason,
+    by: me.nickname
+  };
+  // 정지하면 로그인 상태도 끊는다
+  const sessions = db.table('sessions');
+  for (let i = sessions.length - 1; i >= 0; i--) {
+    if (sessions[i].userId === user.id) sessions.splice(i, 1);
   }
   db.save();
-  return { ok: true, user: adminUserRow(user), by: me.nickname };
+  return { ok: true, nickname: user.nickname, suspended: user.suspended };
+});
+
+on('POST', '/api/admin/users/:id/unsuspend', (ctx) => {
+  needAdmin(ctx.user);
+  const user = db.table('users').find((u) => u.id === ctx.params.id);
+  if (!user) throw new HttpError(404, '사용자를 찾을 수 없습니다.');
+  if (!user.suspended) throw new HttpError(409, '정지 상태가 아닙니다.');
+  delete user.suspended;
+  db.save();
+  return { ok: true, nickname: user.nickname };
+});
+
+/** 잘못 찍힌 스탬프 하나를 되돌린다 */
+on('DELETE', '/api/admin/users/:id/visits/:heritageId', (ctx) => {
+  needAdmin(ctx.user);
+  const rows = db.table('visits');
+  const i = rows.findIndex((v) => v.userId === ctx.params.id && v.heritageId === ctx.params.heritageId);
+  if (i < 0) throw new HttpError(404, '그 방문 기록이 없습니다.');
+  rows.splice(i, 1);
+  db.save();
+  return { ok: true };
+});
+
+/** 한 사람의 스탬프 목록 (관리 화면에서 하나씩 지울 수 있게) */
+on('GET', '/api/admin/users/:id/visits', (ctx) => {
+  needAdmin(ctx.user);
+  return {
+    rows: db.table('visits')
+      .filter((v) => v.userId === ctx.params.id)
+      .sort((a, b) => b.at - a.at)
+      .map((v) => {
+        const h = byId.get(v.heritageId);
+        return { heritageId: v.heritageId, name: h ? h.name : v.heritageId, at: v.at, method: v.method };
+      })
+  };
 });
 
 on('DELETE', '/api/admin/users/:id', (ctx) => {

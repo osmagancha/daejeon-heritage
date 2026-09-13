@@ -1161,6 +1161,37 @@ button.card:hover { box-shadow: var(--shadow-md); }
 .adm-user-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px;
   font-size: 11.5px; color: var(--ink-4); }
 .adm-user-stats b { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.adm-user.suspended { border-color: color-mix(in srgb, var(--red) 45%, transparent);
+  background: color-mix(in srgb, var(--red) 5%, var(--paper)); }
+.adm-sus { margin-top: 9px; padding: 8px 11px; border-radius: 9px; font-size: 11.5px; line-height: 1.5;
+  background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); word-break: keep-all; }
+
+.adm-more { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line-2); }
+.adm-more summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--ink-3);
+  list-style: none; padding: 3px 0; }
+.adm-more summary::-webkit-details-marker { display: none; }
+.adm-more summary::before { content: '▸ '; color: var(--ink-4); }
+.adm-more[open] summary::before { content: '▾ '; }
+.adm-panel { display: grid; gap: 8px; padding-top: 10px; }
+.adm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.adm-grid label { display: grid; gap: 4px; font-size: 11px; font-weight: 700; color: var(--ink-3); }
+.adm-grid input, .adm-grid select {
+  padding: 8px 10px; border-radius: 9px; border: 1.5px solid var(--line);
+  background: var(--surface-2); color: var(--ink); font-family: inherit; font-size: 13px;
+  font-variant-numeric: tabular-nums; width: 100%;
+}
+.adm-grid input:focus, .adm-grid select:focus { outline: none; border-color: var(--red); background: var(--paper); }
+.adm-sep { font-size: 10.5px; font-weight: 700; color: var(--ink-4); letter-spacing: .08em;
+  margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line-2); }
+.adm-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.adm-btns .btn { height: 32px; padding: 0 11px; font-size: 12px; }
+.adm-visits { display: grid; gap: 5px; }
+.adm-visit { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
+  background: var(--surface-2); font-size: 12px; }
+.adm-visit span { flex: 1; font-weight: 600; }
+.adm-visit em { font-style: normal; font-size: 10.5px; color: var(--ink-4); }
+.adm-visit .btn { height: 26px; padding: 0 9px; font-size: 11px; }
+
 .adm-user-act { display: flex; align-items: center; gap: 7px; margin-top: 11px;
   padding-top: 11px; border-top: 1px solid var(--line-2); }
 .adm-user-act label { font-size: 11.5px; font-weight: 700; color: var(--ink-3); flex: none; }

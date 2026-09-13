@@ -423,11 +423,82 @@
     const save = t.closest('[data-adm-save]');
     if (save) {
       const box = save.closest('.adm-user');
-      const points = box.querySelector('.adm-pt').value;
+      const patch = {};
+      box.querySelectorAll('.af').forEach((el) => { patch[el.dataset.f] = el.value; });
       try {
-        const r = await API.patch('/admin/users/' + save.dataset.admSave, { points });
-        UI.toast(`${r.user.nickname} 포인트를 ${Number(r.user.points).toLocaleString()}P 로 바꿨습니다`, '💾');
+        const r = await API.patch('/admin/users/' + save.dataset.admSave, patch);
+        UI.toast(`${r.user.nickname} — ${r.changed.join(', ')}`, '💾');
         if (Store.user && r.user.id === Store.user.id) { await Store.refreshMe(); syncAll(); }
+        UI.openView('admin');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const reset = t.closest('[data-adm-reset]');
+    if (reset) {
+      const kind = reset.dataset.admReset;
+      const label = { stats: '스탯', record: '전적', today: '오늘 겨루기 횟수' }[kind];
+      if (!confirm(`${label}을(를) 되돌립니다. 계속할까요?`)) return;
+      const field = { stats: 'resetStats', record: 'resetRecord', today: 'resetToday' }[kind];
+      try {
+        const r = await API.patch('/admin/users/' + reset.dataset.uid, { [field]: true });
+        UI.toast(`${r.user.nickname} — ${label} 되돌림`, '🔄');
+        UI.openView('admin');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const visits = t.closest('[data-adm-visits]');
+    if (visits) {
+      const id = visits.dataset.admVisits;
+      const box = document.getElementById('av-' + id);
+      if (box.innerHTML) { box.innerHTML = ''; return; }
+      try {
+        const r = await API.get('/admin/users/' + id + '/visits');
+        box.innerHTML = r.rows.length
+          ? r.rows.map((v) => `<div class="adm-visit">
+              <span>${Util.esc(v.name)}</span>
+              <em>${Util.date(v.at)} · ${v.method === 'gps' ? '현장' : '직접'}</em>
+              <button class="btn line danger" data-adm-del-visit="${id}:${v.heritageId}">취소</button>
+            </div>`).join('')
+          : '<p style="font-size:12px;color:var(--ink-4);padding:8px 0">스탬프가 없습니다.</p>';
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const delVisit = t.closest('[data-adm-del-visit]');
+    if (delVisit) {
+      const [uid, hid] = delVisit.dataset.admDelVisit.split(':');
+      try {
+        await API.del('/admin/users/' + uid + '/visits/' + hid);
+        UI.toast('스탬프를 취소했습니다', '🧹');
+        delVisit.closest('.adm-visit').remove();
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const suspend = t.closest('[data-adm-suspend]');
+    if (suspend && !suspend.disabled) {
+      const box = suspend.closest('.adm-panel');
+      const get = (f) => { const el = box.querySelector(`.sf[data-f="${f}"]`); return el ? el.value : ''; };
+      const daysRaw = get('days');
+      const days = daysRaw === '' ? null : Number(daysRaw);
+      if (!confirm(`이 계정을 ${days === null ? '무기한' : days + '일'} 정지합니다.\n로그인도 막히고 지금 접속 중이면 끊깁니다. 계속할까요?`)) return;
+      try {
+        const r = await API.post('/admin/users/' + suspend.dataset.admSuspend + '/suspend',
+          { days, reason: get('reason') });
+        UI.toast(`${r.nickname} 계정을 정지했습니다`, '🚫');
+        UI.openView('admin');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const unsus = t.closest('[data-adm-unsuspend]');
+    if (unsus) {
+      try {
+        const r = await API.post('/admin/users/' + unsus.dataset.admUnsuspend + '/unsuspend', {});
+        UI.toast(`${r.nickname} 정지를 풀었습니다`, '✅');
+        UI.openView('admin');
       } catch (err) { UI.toast(err.message, '⚠️'); }
       return;
     }

@@ -1017,37 +1017,97 @@
       else if (adminTab === 'users') {
         const d = await API.get('/admin/users' + (adminQuery ? '?q=' + encodeURIComponent(adminQuery) : ''));
         kicker = `${d.rows.length} / ${d.total}명`;
+
+        const card = (u) => {
+          const bt = u.battle;
+          const sus = u.suspended;
+          const until = sus ? (sus.until ? Util.date(sus.until) + '까지' : '무기한') : '';
+          return `
+          <div class="adm-user ${sus ? 'suspended' : ''}" data-uid="${u.id}">
+            <div class="adm-user-head">
+              <span class="rank-av" style="background:${Util.avatarBg(u.avatarSeed)}">${esc(u.nickname[0])}</span>
+              <div style="flex:1;min-width:0">
+                <div class="rank-name">${esc(u.nickname)}
+                  ${u.isAdmin ? '<em style="background:var(--blue)">관리자</em>' : ''}
+                  ${u.provider === 'google' ? '<em style="background:var(--ink-3)">구글</em>' : ''}
+                  ${sus ? '<em style="background:var(--red)">정지</em>' : ''}
+                </div>
+                <div class="rank-sub">${esc(u.email || '이메일 없음')}</div>
+              </div>
+            </div>
+
+            ${sus ? `<div class="adm-sus">정지 ${esc(until)} · 사유: ${esc(sus.reason || '기재 없음')} · 처리 ${esc(sus.by || '')}</div>` : ''}
+
+            <div class="adm-user-stats">
+              <span>스탬프 <b>${u.stamps}</b></span>
+              <span>퀴즈 <b>${u.quizCorrect}</b></span>
+              <span>후기 <b>${u.reviews}</b></span>
+              <span>배지 <b>${u.badges}</b></span>
+              ${bt ? `<span>전적 <b>${bt.wins}승 ${bt.losses}패</b></span>
+                      <span>등급 <b>${bt.rating}</b></span>
+                      <span>무기 <b>${esc(bt.weapon)}+${bt.plus}</b></span>` : ''}
+              <span>가입 <b>${Util.date(u.createdAt)}</b></span>
+            </div>
+
+            <details class="adm-more">
+              <summary>관리</summary>
+              <div class="adm-panel">
+
+                <div class="adm-grid">
+                  <label>포인트<input type="number" class="af" data-f="points" value="${u.points}" min="0" /></label>
+                  <label>옥<input type="number" class="af" data-f="gems" value="${u.gems}" min="0" /></label>
+                  ${bt ? `
+                    <label>등급<input type="number" class="af" data-f="rating" value="${bt.rating}" min="100" max="5000" /></label>
+                    <label>강화<input type="number" class="af" data-f="plus" value="${bt.plus}" min="0" max="10" /></label>` : ''}
+                  <label style="grid-column:1/-1">이름<input type="text" class="af" data-f="nickname" value="${esc(u.nickname)}" maxlength="16" /></label>
+                  ${bt ? `<label style="grid-column:1/-1">무기
+                    <select class="af" data-f="weapon">
+                      ${u.weapons.map((w) => `<option value="${w.key}" ${w.key === bt.weaponKey ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}
+                    </select></label>` : ''}
+                </div>
+                <button class="btn red wide" style="height:36px;font-size:13px;margin-top:4px" data-adm-save="${u.id}">위 내용 저장</button>
+
+                <div class="adm-sep">되돌리기</div>
+                <div class="adm-btns">
+                  <button class="btn soft" data-adm-reset="stats" data-uid="${u.id}">스탯 초기화</button>
+                  <button class="btn soft" data-adm-reset="record" data-uid="${u.id}">전적 초기화</button>
+                  <button class="btn soft" data-adm-reset="today" data-uid="${u.id}">오늘 횟수</button>
+                  <button class="btn soft" data-adm-visits="${u.id}">스탬프 보기</button>
+                </div>
+                <div class="adm-visits" id="av-${u.id}"></div>
+
+                <div class="adm-sep">이용 정지</div>
+                ${sus
+                  ? `<button class="btn line wide" style="height:36px;font-size:13px" data-adm-unsuspend="${u.id}">정지 해제</button>`
+                  : `<div class="adm-grid">
+                      <label>기간
+                        <select class="sf" data-f="days">
+                          <option value="1">1일</option>
+                          <option value="3">3일</option>
+                          <option value="7" selected>7일</option>
+                          <option value="30">30일</option>
+                          <option value="">무기한</option>
+                        </select></label>
+                      <label style="grid-column:2/-1">사유<input type="text" class="sf" data-f="reason" placeholder="예: 부적절한 후기" maxlength="200" /></label>
+                    </div>
+                    <button class="btn line danger wide" style="height:36px;font-size:13px;margin-top:4px"
+                      data-adm-suspend="${u.id}" ${u.isAdmin ? 'disabled' : ''}>이용 정지</button>`}
+
+                <div class="adm-sep">완전 삭제</div>
+                <button class="btn line danger wide" style="height:36px;font-size:13px"
+                  data-adm-del-user="${u.id}" data-name="${esc(u.nickname)}" ${u.isAdmin ? 'disabled' : ''}>
+                  계정과 모든 기록 삭제
+                </button>
+              </div>
+            </details>
+          </div>`;
+        };
+
         body = `
           <div class="search-bar" style="padding:0 0 14px">
-            <input id="adm-q" type="search" placeholder="이름 또는 이메일로 검색" value="${esc(adminQuery)}" />
+            <input id="adm-q" type="search" placeholder="이름 또는 이메일로 검색 (엔터)" value="${esc(adminQuery)}" />
           </div>
-          ${d.rows.length ? d.rows.map((u) => `
-            <div class="adm-user">
-              <div class="adm-user-head">
-                <span class="rank-av" style="background:${Util.avatarBg(u.avatarSeed)}">${esc(u.nickname[0])}</span>
-                <div style="flex:1;min-width:0">
-                  <div class="rank-name">${esc(u.nickname)}
-                    ${u.isAdmin ? '<em style="background:var(--blue)">관리자</em>' : ''}
-                    ${u.provider === 'google' ? '<em style="background:var(--ink-3)">구글</em>' : ''}
-                  </div>
-                  <div class="rank-sub">${esc(u.email || '이메일 없음')}</div>
-                </div>
-              </div>
-              <div class="adm-user-stats">
-                <span>스탬프 <b>${u.stamps}</b></span>
-                <span>퀴즈 <b>${u.quizCorrect}</b></span>
-                <span>후기 <b>${u.reviews}</b></span>
-                <span>배지 <b>${u.badges}</b></span>
-                <span>가입 <b>${Util.date(u.createdAt)}</b></span>
-              </div>
-              <div class="adm-user-act">
-                <label>포인트</label>
-                <input type="number" class="adm-pt" value="${u.points}" min="0" max="1000000" />
-                <button class="btn soft" data-adm-save="${u.id}">저장</button>
-                <button class="btn line danger" data-adm-del-user="${u.id}" data-name="${esc(u.nickname)}"
-                  ${u.isAdmin ? 'disabled' : ''}>삭제</button>
-              </div>
-            </div>`).join('')
+          ${d.rows.length ? d.rows.map(card).join('')
             : '<p style="font-size:13px;color:var(--ink-4);padding:30px 0;text-align:center">조건에 맞는 사용자가 없습니다.</p>'}`;
       }
 

@@ -26,6 +26,21 @@ const ADMIN_EMAILS = (() => {
   );
 })();
 
+/**
+ * 정지된 계정인지. 기간이 지나면 저절로 풀린다.
+ * 풀린 경우 기록을 지워 두어 다음부터는 검사가 짧게 끝난다.
+ */
+function suspension(user) {
+  const sus = user && user.suspended;
+  if (!sus) return null;
+  if (sus.until && sus.until < Date.now()) {
+    delete user.suspended;
+    db.save();
+    return null;
+  }
+  return sus;
+}
+
 function isAdmin(user) {
   return !!(user && user.email && ADMIN_EMAILS.has(String(user.email).toLowerCase()));
 }
@@ -90,6 +105,7 @@ function publicUser(u) {
     picture: u.picture || '',
     provider: u.googleId ? 'google' : 'email',
     isAdmin: isAdmin(u),
+    suspended: suspension(u) || null,
     createdAt: u.createdAt
   };
 }
@@ -100,6 +116,7 @@ function validateEmail(v) {
 
 module.exports = {
   isAdmin,
+  suspension,
   adminCount,
   hashPassword,
   verifyPassword,
