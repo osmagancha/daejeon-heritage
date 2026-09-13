@@ -319,6 +319,46 @@
       return;
     }
 
+    /* 관리자 */
+    const at = t.closest('[data-admin-tab]');
+    if (at) { UI.setAdmin(at.dataset.adminTab, ''); UI.openView('admin'); return; }
+
+    const save = t.closest('[data-adm-save]');
+    if (save) {
+      const box = save.closest('.adm-user');
+      const points = box.querySelector('.adm-pt').value;
+      try {
+        const r = await API.patch('/admin/users/' + save.dataset.admSave, { points });
+        UI.toast(`${r.user.nickname} 포인트를 ${Number(r.user.points).toLocaleString()}P 로 바꿨습니다`, '💾');
+        if (Store.user && r.user.id === Store.user.id) { await Store.refreshMe(); syncAll(); }
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const delUser = t.closest('[data-adm-del-user]');
+    if (delUser) {
+      const name = delUser.dataset.name;
+      if (!confirm(`${name} 님의 계정과 스탬프·후기·퀴즈 기록을 모두 지웁니다.\n되돌릴 수 없습니다. 계속할까요?`)) return;
+      try {
+        const r = await API.del('/admin/users/' + delUser.dataset.admDelUser);
+        const n = Object.values(r.removed).reduce((a, b) => a + b, 0);
+        UI.toast(`${r.nickname} 계정과 기록 ${n}건을 지웠습니다`, '🧹');
+        UI.openView('admin');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
+    const delReview = t.closest('[data-adm-del-review]');
+    if (delReview) {
+      if (!confirm('이 후기를 지웁니다. 되돌릴 수 없습니다.')) return;
+      try {
+        await API.del('/admin/reviews/' + delReview.dataset.admDelReview);
+        UI.toast('후기를 지웠습니다', '🧹');
+        UI.openView('admin');
+      } catch (err) { UI.toast(err.message, '⚠️'); }
+      return;
+    }
+
     /* 랭킹 부문 · 기간 */
     const rs = t.closest('[data-rank-sort]');
     if (rs) { UI.setRank(rs.dataset.rankSort, null); UI.openView('ranking'); return; }
@@ -441,6 +481,11 @@
   });
 
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.id === 'adm-q') {
+      UI.setAdmin(null, e.target.value.trim());
+      UI.openView('admin');
+      return;
+    }
     if (e.key === 'Escape') {
       if (body.classList.contains('modal-open')) UI.closeModal();
       else if (body.classList.contains('drawer-open')) UI.openDrawer(false);

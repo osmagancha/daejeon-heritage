@@ -28,6 +28,8 @@
     topAvatar: $('#top-avatar')
   };
 
+  let adminTab = 'overview';  // 관리자 화면 탭
+  let adminQuery = '';        // 사용자 검색어
   let rankSort = 'points';  // 랭킹 부문
   let rankPeriod = 'all';   // 랭킹 기간
   let viewer = null;        // 3D 인스턴스
@@ -709,6 +711,162 @@
       };
     },
 
+    /* ── 관리자 ── */
+    async admin() {
+      if (!Store.user || !Store.user.isAdmin) {
+        return {
+          title: '관리자', kicker: '',
+          html: `<div class="wrap" style="text-align:center;padding-top:70px">
+            <div style="font-size:48px">🔒</div>
+            <h3 style="font-family:var(--font-serif);font-size:20px;margin:12px 0 6px">권한이 없습니다</h3>
+            <p class="lede">관리자로 지정된 계정만 볼 수 있습니다.</p>
+          </div>`
+        };
+      }
+
+      const tabs = [['overview', '현황'], ['users', '사용자'], ['reviews', '후기'], ['heritage', '문화유산']];
+      const head = `
+        <div class="tabs" style="margin:0 0 18px">
+          ${tabs.map(([k, label]) =>
+            `<button class="tab ${adminTab === k ? 'on' : ''}" data-admin-tab="${k}">${label}</button>`).join('')}
+        </div>`;
+
+      let body = '';
+      let kicker = '';
+
+      if (adminTab === 'overview') {
+        const d = await API.get('/admin/overview');
+        const t = d.totals;
+        kicker = `관리자 ${d.admins}명`;
+        const maxV = Math.max(1, ...d.trend.map((x) => x.visits));
+        const tiles = [
+          ['가입자', t.users, '명'], ['이번 주 활동', t.activeWeek, '명'],
+          ['스탬프', t.visits, '개'], ['후기', t.reviews, '편'],
+          ['퀴즈 정답', t.quizCorrect, '/ ' + t.quizAnswered], ['굿즈 교환', t.orders, '건']
+        ];
+        body = `
+          <div class="adm-tiles">
+            ${tiles.map(([label, v, unit]) => `
+              <div class="adm-tile"><b>${Number(v).toLocaleString()}<i>${esc(unit)}</i></b><span>${esc(label)}</span></div>`).join('')}
+          </div>
+
+          <div class="section-h"><h3>최근 2주 스탬프</h3><span>하루 최대 ${maxV}개</span></div>
+          <div class="adm-chart">
+            ${d.trend.map((x) => `
+              <div class="adm-bar" title="${esc(x.day)} · 스탬프 ${x.visits} · 가입 ${x.signups}">
+                <i style="height:${Math.round((x.visits / maxV) * 100)}%"></i>
+                <span>${esc(x.day.slice(3))}</span>
+              </div>`).join('')}
+          </div>
+
+          <div class="section-h"><h3>최근 활동</h3><span>${d.recent.length}건</span></div>
+          <div class="adm-feed">
+            ${d.recent.length ? d.recent.map((e) => `
+              <div class="adm-ev">
+                <span class="adm-ev-ic">${e.kind === 'visit' ? (e.method === 'gps' ? '📍' : '✅') : e.kind === 'review' ? '✍️' : '🎉'}</span>
+                <div style="min-width:0">
+                  <div class="rank-name">${esc(e.nickname)}
+                    <span style="font-weight:500;color:var(--ink-3)">${
+                      e.kind === 'visit' ? esc(e.heritageName) + ' 스탬프'
+                      : e.kind === 'review' ? esc(e.heritageName) + ' 후기 ' + Util.stars(e.rating)
+                      : '가입'}</span>
+                  </div>
+                  <div class="rank-sub">${Util.ago(e.at)}</div>
+                </div>
+              </div>`).join('') : '<p style="font-size:13px;color:var(--ink-4)">아직 활동이 없습니다.</p>'}
+          </div>
+
+          <div class="section-h"><h3>서버 설정</h3><span>환경변수</span></div>
+          <div class="hl-grid">
+            <div class="hl"><span class="em">${d.google.enabled ? '✅' : '⬜'}</span>
+              <div><b>구글 로그인</b><p>${d.google.enabled ? '설정되어 있습니다.' : 'GOOGLE_CLIENT_ID 가 없어 꺼져 있습니다.'}</p></div></div>
+            <div class="hl"><span class="em">👤</span>
+              <div><b>관리자 ${d.admins}명</b><p>ADMIN_EMAILS 환경변수로만 지정됩니다. 이 화면에서는 바꿀 수 없습니다.</p></div></div>
+          </div>`;
+      }
+
+      else if (adminTab === 'users') {
+        const d = await API.get('/admin/users' + (adminQuery ? '?q=' + encodeURIComponent(adminQuery) : ''));
+        kicker = `${d.rows.length} / ${d.total}명`;
+        body = `
+          <div class="search-bar" style="padding:0 0 14px">
+            <input id="adm-q" type="search" placeholder="이름 또는 이메일로 검색" value="${esc(adminQuery)}" />
+          </div>
+          ${d.rows.length ? d.rows.map((u) => `
+            <div class="adm-user">
+              <div class="adm-user-head">
+                <span class="rank-av" style="background:${Util.avatarBg(u.avatarSeed)}">${esc(u.nickname[0])}</span>
+                <div style="flex:1;min-width:0">
+                  <div class="rank-name">${esc(u.nickname)}
+                    ${u.isAdmin ? '<em style="background:var(--blue)">관리자</em>' : ''}
+                    ${u.provider === 'google' ? '<em style="background:var(--ink-3)">구글</em>' : ''}
+                  </div>
+                  <div class="rank-sub">${esc(u.email || '이메일 없음')}</div>
+                </div>
+              </div>
+              <div class="adm-user-stats">
+                <span>스탬프 <b>${u.stamps}</b></span>
+                <span>퀴즈 <b>${u.quizCorrect}</b></span>
+                <span>후기 <b>${u.reviews}</b></span>
+                <span>배지 <b>${u.badges}</b></span>
+                <span>가입 <b>${Util.date(u.createdAt)}</b></span>
+              </div>
+              <div class="adm-user-act">
+                <label>포인트</label>
+                <input type="number" class="adm-pt" value="${u.points}" min="0" max="1000000" />
+                <button class="btn soft" data-adm-save="${u.id}">저장</button>
+                <button class="btn line danger" data-adm-del-user="${u.id}" data-name="${esc(u.nickname)}"
+                  ${u.isAdmin ? 'disabled' : ''}>삭제</button>
+              </div>
+            </div>`).join('')
+            : '<p style="font-size:13px;color:var(--ink-4);padding:30px 0;text-align:center">조건에 맞는 사용자가 없습니다.</p>'}`;
+      }
+
+      else if (adminTab === 'reviews') {
+        const d = await API.get('/admin/reviews');
+        kicker = `${d.rows.length}편`;
+        body = d.rows.length ? d.rows.map((r) => `
+          <div class="adm-review">
+            <div class="rv-head">
+              <span class="rv-av" style="background:${Util.avatarBg(r.avatarSeed)}">${esc(r.nickname[0])}</span>
+              <div><div class="rv-name">${esc(r.nickname)}</div>
+                   <div class="rv-stars">${Util.stars(r.rating)} · ${esc(r.heritageName)}</div></div>
+              <span class="rv-date">${Util.ago(r.at)}</span>
+            </div>
+            <p>${esc(r.body)}</p>
+            <div class="adm-review-act">
+              <button class="btn soft" data-go="${r.heritageId}">유산 보기</button>
+              <button class="btn line danger" data-adm-del-review="${r.id}">삭제</button>
+            </div>
+          </div>`).join('')
+          : '<p style="font-size:13px;color:var(--ink-4);padding:30px 0;text-align:center">등록된 후기가 없습니다.</p>';
+      }
+
+      else {
+        const d = await API.get('/admin/heritage');
+        kicker = `${d.rows.length}곳`;
+        body = `<div class="pop-list">
+          ${d.rows.map((h) => `
+            <button class="pop-row" data-go="${h.id}" style="align-items:flex-start">
+              <span class="pop-vis">${Illustrate.scene(h, { w: 56, h: 44, simple: true })}</span>
+              <div style="min-width:0;flex:1">
+                <div class="rank-name">${esc(h.name)}</div>
+                <div class="rank-sub">${esc(h.category)}</div>
+                <div class="adm-user-stats" style="margin-top:6px">
+                  <span>방문 <b>${h.visitors}</b></span>
+                  <span>현장인증 <b>${h.gps}</b></span>
+                  <span>후기 <b>${h.reviews}</b></span>
+                  ${h.rating ? `<span>평점 <b>${h.rating}</b></span>` : ''}
+                  ${h.quizAccuracy !== null ? `<span>퀴즈 정답률 <b>${h.quizAccuracy}%</b></span>` : ''}
+                </div>
+              </div>
+            </button>`).join('')}
+        </div>`;
+      }
+
+      return { title: '관리자', kicker, html: `<div class="wrap">${head}${body}</div>` };
+    },
+
     /* ── 내 정보 ── */
     profile() {
       const u = Store.user;
@@ -792,7 +950,10 @@
          </div>
          <button class="btn red" style="height:38px;padding:0 14px;font-size:13px" data-act="open-auth">${window.LocalAPI ? '이름 정하기' : '로그인'}</button>`;
 
-    const nav = window.LocalAPI ? NAV.filter((n) => n.key !== 'ranking') : NAV;
+    let nav = window.LocalAPI ? NAV.filter((n) => n.key !== 'ranking') : NAV;
+    if (Store.user && Store.user.isAdmin) {
+      nav = nav.concat([{ sec: '운영' }, { key: 'admin', em: '🛠️', label: '관리자' }]);
+    }
     el.drawerNav.innerHTML = nav.map((n) => {
       if (n.sec) return `<div class="dn-sec">${esc(n.sec)}</div>`;
       const tail = n.tail ? n.tail() : '';
@@ -930,6 +1091,10 @@
     renderPane, sheetHtml,
     Views, openView, closeView,
     renderDrawer, openDrawer,
+    setAdmin(tab, query) {
+      if (tab) adminTab = tab;
+      if (query !== undefined) adminQuery = query;
+    },
     setRank(sort, period) {
       if (sort) rankSort = sort;
       if (period) rankPeriod = period;

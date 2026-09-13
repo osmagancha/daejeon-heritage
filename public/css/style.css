@@ -857,6 +857,52 @@ button.card:hover { box-shadow: var(--shadow-md); }
 .pop-vis svg { display: block; width: 100%; height: 100%; }
 .pop-cnt { margin-left: auto; font-size: 14px; font-weight: 700; flex: none; font-variant-numeric: tabular-nums; }
 
+/* ══════════════════════ 관리자 ══════════════════════ */
+
+.adm-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(98px, 1fr)); gap: 8px; margin-bottom: 6px; }
+.adm-tile { padding: 13px 12px; border-radius: var(--r-md); background: var(--paper); border: 1px solid var(--line-2); }
+.adm-tile b { display: block; font-family: var(--font-serif); font-size: 22px; color: var(--ink);
+  font-variant-numeric: tabular-nums; line-height: 1.1; }
+.adm-tile b i { font-style: normal; font-size: 11px; font-weight: 600; color: var(--ink-4); margin-left: 3px;
+  font-family: var(--font-sans); }
+.adm-tile span { font-size: 11px; color: var(--ink-4); font-weight: 600; }
+
+.adm-chart { display: flex; align-items: flex-end; gap: 3px; height: 110px; padding: 10px 12px 0;
+  background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r-md); }
+.adm-bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  height: 100%; gap: 4px; min-width: 0; }
+.adm-bar i { display: block; width: 100%; max-width: 18px; min-height: 2px; border-radius: 3px 3px 0 0;
+  background: var(--red); opacity: .85; }
+.adm-bar span { font-size: 8.5px; color: var(--ink-4); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.adm-feed { display: grid; gap: 2px; }
+.adm-ev { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line-2); }
+.adm-ev:last-child { border-bottom: 0; }
+.adm-ev-ic { font-size: 16px; width: 22px; text-align: center; flex: none; }
+
+.adm-user { padding: 13px 14px; border-radius: var(--r-md); background: var(--paper);
+  border: 1px solid var(--line-2); margin-bottom: 8px; }
+.adm-user-head { display: flex; align-items: center; gap: 11px; }
+.adm-user-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px;
+  font-size: 11.5px; color: var(--ink-4); }
+.adm-user-stats b { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.adm-user-act { display: flex; align-items: center; gap: 7px; margin-top: 11px;
+  padding-top: 11px; border-top: 1px solid var(--line-2); }
+.adm-user-act label { font-size: 11.5px; font-weight: 700; color: var(--ink-3); flex: none; }
+.adm-user-act .adm-pt { width: 86px; padding: 7px 9px; border-radius: 9px; border: 1.5px solid var(--line);
+  background: var(--surface-2); color: var(--ink); font-family: inherit; font-size: 13px;
+  font-variant-numeric: tabular-nums; }
+.adm-user-act .adm-pt:focus { outline: none; border-color: var(--red); background: var(--paper); }
+.adm-user-act .btn { height: 34px; padding: 0 12px; font-size: 12.5px; }
+.adm-user-act .btn:last-child { margin-left: auto; }
+.btn.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.btn.danger:disabled { color: var(--ink-4); border-color: var(--line); }
+
+.adm-review { padding: 14px; border: 1px solid var(--line-2); border-radius: var(--r-md);
+  margin-bottom: 8px; background: var(--paper); }
+.adm-review-act { display: flex; gap: 8px; margin-top: 10px; }
+.adm-review-act .btn { height: 32px; padding: 0 12px; font-size: 12px; }
+
 /* ══════════════════════ 모달 ══════════════════════ */
 .modal {
   position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 20px;

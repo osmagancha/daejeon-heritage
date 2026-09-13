@@ -542,6 +542,200 @@ on('GET', '/api/leaderboard', (ctx) => {
   };
 });
 
+/* --- 관리자 --- */
+
+const needAdmin = (user) => {
+  needAuth(user);
+  if (!auth.isAdmin(user)) throw new HttpError(403, '관리자만 볼 수 있는 화면입니다.');
+  return user;
+};
+
+/** 한 사람에게 딸린 기록을 모두 찾아 지운다 */
+function purgeUser(userId) {
+  const removed = {};
+  for (const name of ['sessions', 'visits', 'favorites', 'reviews', 'quizLogs', 'orders', 'badges']) {
+    const rows = db.table(name);
+    const before = rows.length;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].userId === userId) rows.splice(i, 1);
+    }
+    removed[name] = before - rows.length;
+  }
+  const users = db.table('users');
+  const i = users.findIndex((u) => u.id === userId);
+  if (i >= 0) users.splice(i, 1);
+  return removed;
+}
+
+function adminUserRow(u) {
+  const visits = db.table('visits').filter((v) => v.userId === u.id);
+  return {
+    id: u.id,
+    email: u.email || '',
+    nickname: u.nickname,
+    avatarSeed: u.avatarSeed,
+    provider: u.googleId ? 'google' : 'email',
+    isAdmin: auth.isAdmin(u),
+    points: u.points || 0,
+    stamps: new Set(visits.map((v) => v.heritageId)).size,
+    reviews: db.table('reviews').filter((r) => r.userId === u.id).length,
+    quizCorrect: db.table('quizLogs').filter((q) => q.userId === u.id && q.correct).length,
+    badges: db.table('badges').filter((b) => b.userId === u.id).length,
+    createdAt: u.createdAt,
+    lastAt: visits.length ? Math.max(...visits.map((v) => v.at)) : 0
+  };
+}
+
+on('GET', '/api/admin/overview', (ctx) => {
+  needAdmin(ctx.user);
+  const users = db.table('users');
+  const visits = db.table('visits');
+  const reviews = db.table('reviews');
+  const quiz = db.table('quizLogs');
+  const day = 864e5;
+  const since = (n) => Date.now() - n * day;
+
+  // 최근 14일 활동 추이
+  const trend = [];
+  for (let i = 13; i >= 0; i--) {
+    const from = Date.now() - (i + 1) * day;
+    const to = Date.now() - i * day;
+    trend.push({
+      day: new Date(to).toISOString().slice(5, 10),
+      visits: visits.filter((v) => v.at >= from && v.at < to).length,
+      signups: users.filter((u) => u.createdAt >= from && u.createdAt < to).length
+    });
+  }
+
+  const recent = [
+    ...visits.map((v) => ({ kind: 'visit', at: v.at, userId: v.userId, heritageId: v.heritageId, method: v.method })),
+    ...reviews.map((r) => ({ kind: 'review', at: r.at, userId: r.userId, heritageId: r.heritageId, rating: r.rating })),
+    ...users.map((u) => ({ kind: 'signup', at: u.createdAt, userId: u.id }))
+  ].sort((a, b) => b.at - a.at).slice(0, 25)
+   .map((e) => {
+     const u = users.find((x) => x.id === e.userId);
+     const h = e.heritageId ? byId.get(e.heritageId) : null;
+     return { ...e, nickname: u ? u.nickname : '탈퇴한 사용자', heritageName: h ? h.name : '' };
+   });
+
+  return {
+    totals: {
+      users: users.length,
+      activeWeek: new Set(visits.filter((v) => v.at >= since(7)).map((v) => v.userId)).size,
+      visits: visits.length,
+      reviews: reviews.length,
+      quizAnswered: quiz.length,
+      quizCorrect: quiz.filter((q) => q.correct).length,
+      orders: db.table('orders').length,
+      points: users.reduce((n, u) => n + (u.points || 0), 0)
+    },
+    trend,
+    recent,
+    google: { enabled: google.enabled() },
+    admins: auth.adminCount()
+  };
+});
+
+on('GET', '/api/admin/users', (ctx) => {
+  needAdmin(ctx.user);
+  const q = String(ctx.query.q || '').trim().toLowerCase();
+  let rows = db.table('users').map(adminUserRow);
+  if (q) {
+    rows = rows.filter((r) =>
+      r.nickname.toLowerCase().includes(q) || r.email.toLowerCase().includes(q));
+  }
+  rows.sort((a, b) => b.createdAt - a.createdAt);
+  return { total: db.table('users').length, rows };
+});
+
+on('PATCH', '/api/admin/users/:id', (ctx) => {
+  const me = needAdmin(ctx.user);
+  const user = db.table('users').find((u) => u.id === ctx.params.id);
+  if (!user) throw new HttpError(404, '사용자를 찾을 수 없습니다.');
+  const b = ctx.body || {};
+
+  if (b.points !== undefined) {
+    const p = Math.round(Number(b.points));
+    if (!Number.isFinite(p) || p < 0 || p > 1000000) bad('포인트는 0 이상 1,000,000 이하여야 합니다.');
+    user.points = p;
+  }
+  if (b.nickname !== undefined) {
+    const n = String(b.nickname).trim();
+    if (n.length < 2 || n.length > 16) bad('이름은 2~16자로 입력해 주세요.');
+    user.nickname = n;
+  }
+  db.save();
+  return { ok: true, user: adminUserRow(user), by: me.nickname };
+});
+
+on('DELETE', '/api/admin/users/:id', (ctx) => {
+  const me = needAdmin(ctx.user);
+  const user = db.table('users').find((u) => u.id === ctx.params.id);
+  if (!user) throw new HttpError(404, '사용자를 찾을 수 없습니다.');
+  if (user.id === me.id) throw new HttpError(400, '자기 계정은 여기서 지울 수 없습니다.');
+  if (auth.isAdmin(user)) throw new HttpError(400, '다른 관리자 계정은 지울 수 없습니다.');
+
+  const nickname = user.nickname;
+  const removed = purgeUser(user.id);
+  db.save();
+  return { ok: true, nickname, removed };
+});
+
+on('GET', '/api/admin/reviews', (ctx) => {
+  needAdmin(ctx.user);
+  const users = db.table('users');
+  return {
+    rows: db.table('reviews')
+      .slice()
+      .sort((a, b) => b.at - a.at)
+      .map((r) => {
+        const u = users.find((x) => x.id === r.userId);
+        const h = byId.get(r.heritageId);
+        return {
+          id: r.id, at: r.at, rating: r.rating, body: r.body,
+          nickname: u ? u.nickname : '탈퇴한 사용자',
+          avatarSeed: u ? u.avatarSeed : 0,
+          heritageId: r.heritageId,
+          heritageName: h ? h.name : r.heritageId
+        };
+      })
+  };
+});
+
+on('DELETE', '/api/admin/reviews/:id', (ctx) => {
+  needAdmin(ctx.user);
+  const rows = db.table('reviews');
+  const i = rows.findIndex((r) => r.id === ctx.params.id);
+  if (i < 0) throw new HttpError(404, '후기를 찾을 수 없습니다.');
+  const gone = rows[i];
+  rows.splice(i, 1);
+  db.save();
+  return { ok: true, heritageId: gone.heritageId };
+});
+
+on('GET', '/api/admin/heritage', (ctx) => {
+  needAdmin(ctx.user);
+  const visits = db.table('visits');
+  const reviews = db.table('reviews');
+  const quiz = db.table('quizLogs');
+  return {
+    rows: HERITAGE.map((h) => {
+      const vs = visits.filter((v) => v.heritageId === h.id);
+      const rs = reviews.filter((r) => r.heritageId === h.id);
+      const qs = quiz.filter((q) => q.heritageId === h.id);
+      return {
+        id: h.id, name: h.name, short: h.short, category: h.category,
+        palette: h.palette, model: h.model,
+        visitors: new Set(vs.map((v) => v.userId)).size,
+        gps: vs.filter((v) => v.method === 'gps').length,
+        reviews: rs.length,
+        rating: rs.length ? Math.round((rs.reduce((n, r) => n + r.rating, 0) / rs.length) * 10) / 10 : 0,
+        quizAccuracy: qs.length ? Math.round((qs.filter((q) => q.correct).length / qs.length) * 100) : null
+      };
+    }).sort((a, b) => b.visitors - a.visitors)
+  };
+});
+
 /* ------------------------------------------------------------- dispatcher */
 
 /**
