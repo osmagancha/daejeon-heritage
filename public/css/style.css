@@ -1090,6 +1090,11 @@ button.card:hover { box-shadow: var(--shadow-md); }
 .forge-msg.fail { background: var(--surface-2); color: var(--ink-3); }
 .forge-msg.drop { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
 
+/* 승급 도전에서 쌓인 공덕 */
+.av-merit { font-style: normal; font-size: 11px; font-weight: 600; margin-left: 6px;
+  padding: 2px 6px; border-radius: 999px; color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent); }
+
 .weapon-list { display: grid; gap: 7px; }
 .weapon-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px;
   border-radius: var(--r-md); background: var(--paper); border: 1px solid var(--line-2); }

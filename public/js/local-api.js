@@ -25,7 +25,8 @@
     orders: [],      // {id, goodsId, qty, pointsSpent, at, status}
     badges: [],      // {badgeId, at}
     avatar: null,    // {robe, item}
-    greet: null      // {streak, lastDay, total}
+    greet: null,     // {streak, lastDay, total}
+    rise: null       // {level, fails, tries} — 승급 기록
   };
 
   let cache = null;
@@ -210,6 +211,7 @@
       points: 100,
       createdAt: Date.now()
     };
+    s.rise = { level: 1, fails: 0, tries: 0 };   // 누구나 동몽에서 시작한다
     save();
     return { token: 'local', user: s.user, welcomePoints: 100 };
   });
@@ -356,6 +358,18 @@
   const GREET_POINTS = 10;
   const GREET_MAX_STREAK = 7;
 
+  /** 승급 기록. 예전 방식으로 자란 단계는 그대로 물려받는다. */
+  function riseState() {
+    const s = load();
+    if (!s.rise) {
+      s.rise = { level: AvatarRules.stageOf((s.user && s.user.points) || 0).level, fails: 0, tries: 0 };
+    }
+    const r = s.rise;
+    r.level = Math.min(AvatarRules.STAGES.length, Math.max(1, Math.round(r.level || 1)));
+    r.fails = Math.max(0, Math.round(r.fails || 0));
+    return r;
+  }
+
   function avatarStats() {
     const s = load();
     return {
@@ -365,7 +379,7 @@
       quiz: new Set(s.quizLogs.filter((q) => q.correct).map((q) => q.heritageId + ':' + q.qIndex)).size,
       badges: s.badges.length,
       streak: (s.greet && s.greet.streak) || 0,
-      level: AvatarRules.stageOf((s.user && s.user.points) || 0).level
+      level: riseState().level
     };
   }
 
@@ -378,9 +392,16 @@
     const look = AvatarRules.sanitize(s.avatar, stats);
     s.avatar = look;
     const greet = s.greet || { streak: 0, lastDay: null, total: 0 };
+    const rise = riseState();
     return {
-      stage: AvatarRules.stageOf(u.points || 0),
-      stages: AvatarRules.STAGES.map((x) => ({ key: x.key, level: x.level, name: x.name, hanja: x.hanja, need: x.need, tier: x.tier, emoji: x.emoji, desc: x.desc })),
+      stage: AvatarRules.stageAt(rise.level, u.points || 0, rise.fails),
+      tries: rise.tries || 0,
+      stages: AvatarRules.STAGES.map((x) => ({
+        key: x.key, level: x.level, name: x.name, hanja: x.hanja, need: x.need,
+        tier: x.tier, emoji: x.emoji, desc: x.desc,
+        cost: AvatarRules.riseCost(x.level),
+        rate: x.level < AvatarRules.STAGES.length ? AvatarRules.riseRate(x.level) : null
+      })),
       tiers: AvatarRules.TIERS,
       points: u.points || 0,
       look,
@@ -414,6 +435,35 @@
     s.avatar = clean;
     save();
     return avatarPayload();
+  });
+
+  /** 승급 도전 — 포인트를 들이고 확률에 건다. 떨어져도 단계는 내려가지 않는다. */
+  on('POST', '/avatar/levelup', () => {
+    const u = needUser();
+    const r = riseState();
+    if (r.level >= AvatarRules.STAGES.length) throw new LocalError(409, '마지막 단계입니다. 더 오를 곳이 없습니다.');
+
+    const info = AvatarRules.riseInfo(r.level, u.points || 0, r.fails);
+    if (!info.can) throw new LocalError(402, `포인트가 ${info.short.toLocaleString()}P 부족합니다.`);
+
+    const before = r.level;
+    const sure = info.sureIn === 0;
+    u.points -= info.cost;
+    const ok = Math.random() < info.odds;
+
+    if (ok) { r.level += 1; r.fails = 0; }
+    else { r.fails += 1; }
+    r.tries = (r.tries || 0) + 1;
+    save();
+
+    return {
+      ok, sure, before, after: r.level,
+      cost: info.cost,
+      odds: Math.round(info.odds * 1000) / 10,
+      fails: r.fails,
+      name: AvatarRules.STAGES[r.level - 1].name,
+      avatar: avatarPayload()
+    };
   });
 
   on('POST', '/avatar/greet', () => {

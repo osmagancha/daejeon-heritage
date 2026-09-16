@@ -598,6 +598,26 @@
     else if (a === 'gem-buy') {
       UI.toast('옥 결제는 아직 열려 있지 않습니다. 겨루기로 모아 주세요.', '🔷');
     }
+    else if (a === 'levelup') {
+      const btn = act;
+      btn.disabled = true;                       // 두 번 눌려 두 번 나가지 않게
+      try {
+        const r = await API.post('/avatar/levelup');
+        const box = document.getElementById('av-rise-result');
+        if (box) {
+          box.innerHTML = `<div class="forge-msg ${r.ok ? 'ok' : 'fail'}">
+            ${r.ok
+              ? `${r.before}단계 → <b>${r.after}단계 ${Util.esc(r.name)}</b> 올랐습니다`
+              : `오르지 못했습니다. ${r.before}단계 그대로입니다` +
+                (r.fails ? ` · 공덕 ${r.fails}번 쌓였습니다` : '')}
+          </div>`;
+        }
+        UI.toast(r.ok ? `승급! ${r.name}` : `승급 실패 (${r.odds}%)`, r.ok ? '🎊' : '💢');
+        await Store.refreshMe();
+        setTimeout(() => UI.openView('avatar'), 900);
+        syncAll();
+      } catch (err) { btn.disabled = false; UI.toast(err.message, '⚠️'); }
+    }
     else if (a === 'greet') {
       try {
         const r = await API.post('/avatar/greet');

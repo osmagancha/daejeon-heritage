@@ -233,6 +233,7 @@ on('POST', '/api/auth/register', (ctx) => {
     passwordHash: hash,
     salt,
     points: 100,                       // 가입 축하 포인트
+    rise: { level: 1, fails: 0, tries: 0 },   // 누구나 동몽에서 시작한다
     avatarSeed: Math.floor(Math.random() * 360),
     bio: '',
     createdAt: Date.now()
@@ -303,6 +304,7 @@ on('POST', '/api/auth/google', async (ctx) => {
       passwordHash: '',
       salt: '',
       points: 100,
+      rise: { level: 1, fails: 0, tries: 0 },
       avatarSeed: Math.floor(Math.random() * 360),
       bio: '',
       createdAt: Date.now()
@@ -609,7 +611,7 @@ function avatarStats(user) {
       .map((q) => q.heritageId + ':' + q.qIndex)).size,
     badges: db.table('badges').filter((b) => b.userId === user.id).length,
     streak: (user.greet && user.greet.streak) || 0,
-    level: avatar.stageOf(user.points || 0).level
+    level: levelOf(user)
   };
 }
 
@@ -626,9 +628,15 @@ function avatarPayload(user) {
     db.save();
   }
   const greet = user.greet || { streak: 0, lastDay: null, total: 0 };
+  const rise = riseState(user);
   return {
-    stage: avatar.stageOf(user.points || 0),
-    stages: avatar.STAGES.map((x) => ({ key: x.key, level: x.level, name: x.name, hanja: x.hanja, need: x.need, tier: x.tier, emoji: x.emoji, desc: x.desc })),
+    stage: avatar.stageAt(rise.level, user.points || 0, rise.fails),
+    tries: rise.tries || 0,
+    stages: avatar.STAGES.map((x) => ({
+      key: x.key, level: x.level, name: x.name, hanja: x.hanja, need: x.need,
+      tier: x.tier, emoji: x.emoji, desc: x.desc,
+      cost: avatar.riseCost(x.level), rate: x.level < avatar.STAGES.length ? avatar.riseRate(x.level) : null
+    })),
     tiers: avatar.TIERS,
     points: user.points || 0,
     look,
@@ -646,6 +654,38 @@ function avatarPayload(user) {
 }
 
 on('GET', '/api/avatar', (ctx) => avatarPayload(needAuth(ctx.user)));
+
+/**
+ * 승급 도전 — 포인트를 들이고 확률에 건다.
+ * 떨어져도 단계가 내려가지는 않는다. 대신 공덕이 쌓여 다음 확률이 오른다.
+ */
+on('POST', '/api/avatar/levelup', (ctx) => {
+  const user = needAuth(ctx.user);
+  const r = riseState(user);
+  if (r.level >= avatar.STAGES.length) throw new HttpError(409, '마지막 단계입니다. 더 오를 곳이 없습니다.');
+
+  const info = avatar.riseInfo(r.level, user.points || 0, r.fails);
+  if (!info.can) throw new HttpError(402, `포인트가 ${info.short.toLocaleString()}P 부족합니다.`);
+
+  const before = r.level;
+  const sure = info.sureIn === 0;          // 내리 떨어져 이번엔 반드시 오르는 차례
+  user.points -= info.cost;
+  const ok = Math.random() < info.odds;
+
+  if (ok) { r.level += 1; r.fails = 0; }
+  else { r.fails += 1; }
+  r.tries = (r.tries || 0) + 1;
+  db.save();
+
+  return {
+    ok, sure, before, after: r.level,
+    cost: info.cost,
+    odds: Math.round(info.odds * 1000) / 10,
+    fails: r.fails,
+    name: avatar.STAGES[r.level - 1].name,
+    avatar: avatarPayload(user)
+  };
+});
 
 on('PATCH', '/api/avatar', (ctx) => {
   const user = needAuth(ctx.user);
@@ -722,8 +762,23 @@ function battleOf(user) {
 
 const battleLimit = (b) => DAILY_BATTLES + (b.extra || 0);
 
+/**
+ * 승급 기록. 단계는 이제 쌓인 포인트에서 되짚는 값이 아니라 저장된 값이다.
+ * 확률제로 바뀌기 전에 자란 사람은 그때의 단계를 그대로 물려받는다.
+ */
+function riseState(user) {
+  if (!user.rise) {
+    user.rise = { level: avatar.stageOf(user.points || 0).level, fails: 0, tries: 0 };
+    db.save();
+  }
+  const r = user.rise;
+  r.level = Math.min(avatar.STAGES.length, Math.max(1, Math.round(r.level || 1)));
+  r.fails = Math.max(0, Math.round(r.fails || 0));
+  return r;
+}
+
 function levelOf(user) {
-  return avatar.stageOf(user.points || 0).level;
+  return riseState(user).level;
 }
 
 /** 나 자신을 전투 수치로 */
@@ -1349,6 +1404,11 @@ on('PATCH', '/api/admin/users/:id', (ctx) => {
 
   numField('points', 0, 10000000, '포인트', (v) => { user.points = v; });
   numField('gems', 0, 100000, '옥', (v) => { user.gems = v; });
+  numField('level', 1, avatar.STAGES.length, '아바타 단계', (v) => {
+    const r = riseState(user);
+    r.level = v;
+    r.fails = 0;          // 단계를 손대면 쌓인 공덕도 없앤다
+  });
 
   if (b.nickname !== undefined) {
     const n = security.cleanNickname(b.nickname);

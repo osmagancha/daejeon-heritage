@@ -222,13 +222,20 @@
       });
     },
 
-    /** 컨테이너 크기가 잡힌 뒤에 실행 (초기 렌더 경합 방지) */
-    whenSized(cb) {
+    /**
+     * 컨테이너 크기가 잡힌 뒤에 실행 (초기 렌더 경합 방지).
+     *
+     * 크기가 0 인 채로 지도를 옮기면 좌표 계산이 NaN 이 되어 Leaflet 이 던진다.
+     * 그러니 한 번 기다려 보고 마는 대신, 크기가 잡힐 때까지 짧게 되묻고
+     * 끝내 잡히지 않으면(숨겨진 화면 등) 아예 하지 않는다.
+     */
+    whenSized(cb, tries = 12) {
       if (!map) return;
       const s = map.getSize();
       if (s.x > 0 && s.y > 0) return cb();
       map.invalidateSize();
-      setTimeout(() => { if (map) cb(); }, 140);
+      if (tries <= 0) return;
+      setTimeout(() => this.whenSized(cb, tries - 1), 120);
     },
 
     _fit(pts, pad) {

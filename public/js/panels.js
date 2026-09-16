@@ -740,6 +740,7 @@
       const d = await API.get('/avatar');
       const st = d.stage;
       const pct = Math.round(st.progress * 100);
+      const r = st.rise;          // 다음 단계 도전 정보 (마지막 단계면 null)
       const robeHex = (d.catalog.robes.find((r) => r.key === d.look.robe) || {}).hex || '#EDE6D6';
       avatarLook = { form: st.form, robeHex, item: d.look.item };
 
@@ -766,15 +767,40 @@
             <div class="av-progress">
               <div class="av-progress-head">
                 <span>${esc(st.name)}</span>
-                <span>${st.next ? `다음 ${esc(st.next.name)}까지 ${st.next.left.toLocaleString()}P` : '마지막 단계입니다'}</span>
+                <span>${r ? (r.can ? `${esc(st.next.name)}에 도전할 수 있습니다` : `도전까지 ${r.short.toLocaleString()}P 남음`) : '마지막 단계입니다'}</span>
               </div>
               <div class="progress"><i style="width:${pct}%"></i></div>
               <div class="av-progress-foot">
                 <span>${d.points.toLocaleString()}P</span>
-                <span>${st.next ? st.next.need.toLocaleString() + 'P' : '🏅 완주'}</span>
+                <span>${r ? r.cost.toLocaleString() + 'P' : '🏅 완주'}</span>
               </div>
             </div>
           </div>
+
+          ${r ? `
+            <div class="section-h"><h3>승급</h3><span>${(r.base * 100).toFixed(0)}% 확률</span></div>
+            <div class="forge-panel">
+              <div class="forge-line">
+                <span>다음 단계</span>
+                <b>${esc(st.next.name)} <span class="stat-hanja">${esc(st.next.hanja || '')}</span></b>
+              </div>
+              <div class="forge-line">
+                <span>오를 확률</span>
+                <b>${(r.odds * 100).toFixed(0)}%${r.bonus ? ` <em class="av-merit">공덕 +${(r.bonus * 100).toFixed(0)}%</em>` : ''}</b>
+              </div>
+              <div class="forge-line"><span>한 번 드는 값</span><b>${r.cost.toLocaleString()}P</b></div>
+              <div class="forge-line"><span>떨어지면</span><b>단계는 그대로, 공덕이 쌓입니다</b></div>
+              ${r.fails ? `<div class="forge-line"><span>내리 떨어진 횟수</span><b>${r.fails}번 ${r.sureIn ? `· ${r.sureIn}번 더 떨어지면 반드시 오릅니다` : '· 이번엔 반드시 오릅니다'}</b></div>` : ''}
+              <div class="btn-row">
+                <button class="btn red" style="flex:1" data-act="levelup" ${r.can ? '' : 'disabled'}>
+                  ${r.can ? `승급 도전 · ${r.cost.toLocaleString()}P` : `${r.short.toLocaleString()}P 더 모아야 합니다`}
+                </button>
+              </div>
+            </div>
+            <div id="av-rise-result"></div>` : `
+            <div class="forge-panel">
+              <p class="arena-note" style="margin:0">마지막 단계에 닿았습니다. 더 오를 곳이 없습니다.</p>
+            </div>`}
 
           <div class="av-greet ${d.greet.doneToday ? 'done' : ''}">
             <div style="flex:1;min-width:0">
@@ -817,9 +843,9 @@
                   <span class="av-next-lv">${x.level}</span>
                   <div style="flex:1;min-width:0">
                     <div class="rank-name">${esc(x.name)} <span style="font-weight:500;color:var(--ink-4)">${esc(x.hanja)}</span></div>
-                    <div class="rank-sub">${(x.need - d.points).toLocaleString()}P 남음</div>
+                    <div class="rank-sub">${x.rate != null ? `한 번에 ${(x.rate * 100).toFixed(0)}%` : '마지막 단계'}</div>
                   </div>
-                  <span class="av-next-need">${x.need.toLocaleString()}P</span>
+                  <span class="av-next-need">${x.cost ? x.cost.toLocaleString() + 'P' : '—'}</span>
                 </div>`).join('')}
             </div>` : ''}
 
@@ -834,7 +860,8 @@
 
           <p style="margin-top:18px;font-size:11.5px;color:var(--ink-4);line-height:1.7;text-align:center">
             칭호는 조선의 학제와 관직에서 이름만 빌린 놀이용 단계입니다.<br />
-            하루도 거르지 않고 문안을 드려도 마지막 단계까지 약 5년이 걸립니다.
+            단계는 저절로 오르지 않습니다. 모은 포인트로 도전해 확률에 겁니다.<br />
+            운이 평균대로 따라 준다면 마지막 단계까지 약 5년이 걸립니다.
           </p>
         </div>`,
         after() { mountAvatar3D(); }
@@ -1056,6 +1083,7 @@
                 <div class="adm-grid">
                   <label>포인트<input type="number" class="af" data-f="points" value="${u.points}" min="0" /></label>
                   <label>옥<input type="number" class="af" data-f="gems" value="${u.gems}" min="0" /></label>
+                  <label>아바타 단계<input type="number" class="af" data-f="level" value="${u.level}" min="1" max="30" /></label>
                   ${bt ? `
                     <label>등급<input type="number" class="af" data-f="rating" value="${bt.rating}" min="100" max="5000" /></label>
                     <label>강화<input type="number" class="af" data-f="plus" value="${bt.plus}" min="0" max="10" /></label>` : ''}

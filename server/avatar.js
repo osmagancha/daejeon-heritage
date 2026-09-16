@@ -5,8 +5,12 @@
  *
  * 서른 단계. 스무 단계까지는 사람으로 자라고, 그 위로는 옛이야기 속
  * 영물과 신격으로 넘어간다. 기수가 바뀌면 생김새가 바뀐다.
- * 필요 포인트는 (단계-1)^2.4 곡선을 따른다. 하루 한 번 문안을 거르지 않고
- * 드려도 마지막 단계까지 약 5년이 걸리도록 잡았다.
+ *
+ * 승급은 저절로 되지 않는다. 포인트를 들여 **도전**하고, 정해진 확률로
+ * 오르거나 그대로 머문다. need 는 이제 도달선이 아니라 곡선을 잡아 두는
+ * 기준값이고, 한 번 도전하는 값은 riseCost 가 그 곡선에서 끌어낸다.
+ * 한 단계에 드는 포인트의 기댓값이 예전의 need 간격과 같도록 맞춰 두어,
+ * 하루도 거르지 않으면 마지막 단계까지 약 5년이라는 호흡은 그대로다.
  *
  * 칭호와 생김새는 조선의 학제와 우리 옛이야기에서 이름만 빌린 놀이용
  * 설정이다. form 은 3D 아바타를 짓는 명세로 public/js/avatar-3d.js 가 읽는다.
@@ -129,6 +133,85 @@ const RULE_LABEL = {
   level: (n) => `${n}단계 도달`
 };
 
+/* ─────────────────────────── 승급 ───────────────────────────
+ *
+ * 포인트가 얼마 모였다고 저절로 오르지 않는다. 가진 포인트로 도전하고,
+ * 오르거나 오르지 않는다. 오르지 못해도 헛되지는 않게, 그 단계에서 실패한
+ * 횟수만큼 다음 확률이 조금씩 올라간다(공덕이 쌓인다).
+ */
+
+/** 이 단계에서 다음으로 오를 기본 확률 */
+function riseRate(level) {
+  const r = 0.95 * Math.pow(0.955, level - 1);
+  return Math.max(0.15, Math.round(r * 1000) / 1000);
+}
+
+/** 한 번 도전하는 데 드는 포인트 */
+function riseCost(level) {
+  const cur = STAGES[level - 1];
+  const next = STAGES[level];
+  if (!cur || !next) return null;
+  // 확률을 곱해 둔다 → 한 단계에 드는 포인트의 기댓값이 need 간격과 같아진다
+  return Math.max(10, Math.round((next.need - cur.need) * riseRate(level)));
+}
+
+const RISE_BONUS = 0.03;       // 한 번 실패할 때마다 오르는 몫
+const RISE_BONUS_MAX = 0.35;   // 쌓여도 여기까지
+const RISE_SURE = 20;          // 이만큼 내리 실패하면 다음 도전은 반드시 오른다
+
+/** 쌓인 공덕까지 더한 실제 확률 */
+function riseOdds(level, fails) {
+  const f = Math.max(0, fails || 0);
+  if (f >= RISE_SURE) return 1;
+  const odds = riseRate(level) + Math.min(RISE_BONUS_MAX, f * RISE_BONUS);
+  return Math.min(0.99, Math.round(odds * 1000) / 1000);
+}
+
+/** 화면에 그대로 내보낼 승급 정보 */
+function riseInfo(level, points, fails) {
+  if (level >= STAGES.length) return null;
+  const cost = riseCost(level);
+  return {
+    cost,
+    base: riseRate(level),
+    odds: riseOdds(level, fails),
+    fails: Math.max(0, fails || 0),
+    bonus: Math.min(RISE_BONUS_MAX, Math.max(0, fails || 0) * RISE_BONUS),
+    sureIn: Math.max(0, RISE_SURE - Math.max(0, fails || 0)),
+    can: (points || 0) >= cost,
+    short: Math.max(0, cost - (points || 0))
+  };
+}
+
+/**
+ * 지금 단계의 모습. level 은 저장된 단계 번호(1부터)다.
+ * points 는 다음 도전을 치를 수 있는지 보여 주는 데만 쓴다.
+ */
+function stageAt(level, points, fails) {
+  const idx = Math.min(STAGES.length, Math.max(1, Math.round(level || 1))) - 1;
+  const cur = STAGES[idx];
+  const next = STAGES[idx + 1] || null;
+  const tier = TIERS.find((t) => t.tier === cur.tier);
+  const rise = riseInfo(cur.level, points, fails);
+  return {
+    ...cur,
+    max: STAGES.length,
+    tierName: tier.name,
+    realm: tier.realm,
+    wear: tier.wear,
+    // 사람 단계는 기수의 차림새를, 영물부터는 각 단계의 생김새를 쓴다
+    form: cur.form || tier.form || { kind: 'human', hat: 'daenggi' },
+    next: next ? { name: next.name, hanja: next.hanja, level: next.level, emoji: next.emoji } : null,
+    rise,
+    // 막대는 이제 '다음 도전을 치를 만큼 모였는가'를 보여 준다
+    progress: rise ? Math.min(1, (points || 0) / rise.cost) : 1
+  };
+}
+
+/**
+ * 예전 방식 — 쌓인 포인트로 단계를 되짚는다.
+ * 확률제로 바뀌기 전에 자란 사람들의 단계를 옮겨 오는 데만 쓴다.
+ */
 function stageOf(points) {
   let idx = 0;
   for (let i = 0; i < STAGES.length; i++) if (points >= STAGES[i].need) idx = i;
@@ -178,7 +261,11 @@ function sanitize(look, stats) {
   };
 }
 
-const AvatarRules = { STAGES, TIERS, ROBES, ITEMS, stageOf, catalog, sanitize, meets };
+const AvatarRules = {
+  STAGES, TIERS, ROBES, ITEMS, catalog, sanitize, meets,
+  stageAt, stageOf, riseRate, riseCost, riseOdds, riseInfo,
+  RISE_BONUS, RISE_BONUS_MAX, RISE_SURE
+};
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AvatarRules;
