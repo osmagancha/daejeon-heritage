@@ -4,8 +4,10 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
+const security = require('./security');
 
-const SESSION_DAYS = 30;
+const SESSION_DAYS = 14;
+const MAX_SESSIONS = 8;   // 한 계정이 동시에 들고 있을 수 있는 수
 
 /**
  * 관리자 지정.
@@ -62,8 +64,22 @@ function verifyPassword(password, salt, expected) {
 function createSession(userId, ua = '') {
   const token = crypto.randomBytes(32).toString('base64url');
   const now = Date.now();
-  db.table('sessions').push({
-    token,
+  const rows = db.table('sessions');
+
+  // 만료된 것은 이 참에 치운다
+  for (let i = rows.length - 1; i >= 0; i--) if (rows[i].expiresAt < now) rows.splice(i, 1);
+
+  // 한 계정이 너무 많은 세션을 들고 있지 않게 오래된 것부터 버린다
+  const mine = rows.filter((s) => s.userId === userId).sort((a, b) => a.createdAt - b.createdAt);
+  while (mine.length >= MAX_SESSIONS) {
+    const oldest = mine.shift();
+    const i = rows.indexOf(oldest);
+    if (i >= 0) rows.splice(i, 1);
+  }
+
+  // 원문이 아니라 해시를 저장한다 (저장소가 새어도 그대로 쓸 수 없게)
+  rows.push({
+    hash: security.hashToken(token),
     userId,
     createdAt: now,
     expiresAt: now + SESSION_DAYS * 864e5,
@@ -75,14 +91,17 @@ function createSession(userId, ua = '') {
 
 function destroySession(token) {
   const rows = db.table('sessions');
-  const i = rows.findIndex((s) => s.token === token);
+  const hash = security.hashToken(token);
+  const i = rows.findIndex((s) => s.hash === hash || s.token === token);
   if (i >= 0) { rows.splice(i, 1); db.save(); }
 }
 
 function userFromToken(token) {
   if (!token) return null;
   const sessions = db.table('sessions');
-  const s = sessions.find((x) => x.token === token);
+  const hash = security.hashToken(token);
+  // 예전에 원문으로 저장된 세션도 당분간 받아 준다
+  const s = sessions.find((x) => x.hash === hash || x.token === token);
   if (!s) return null;
   if (s.expiresAt < Date.now()) {
     sessions.splice(sessions.indexOf(s), 1);

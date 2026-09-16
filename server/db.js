@@ -36,7 +36,9 @@ const EMPTY = {
   badges: [],      // {userId, badgeId, at}
   battles: [],     // {id, aId, bId, bName, npc, winner, delta, at, log}
   friends: [],     // {a, b, at}  — a < b 로 정렬해 한 줄만 둔다
-  friendReqs: []   // {id, from, to, at}
+  friendReqs: [],  // {id, from, to, at}
+  rateLimits: [],  // {key, hits, at, fails, lockUntil}
+  adminLogs: []    // {id, at, by, action, target, detail}
 };
 
 let cache = null;

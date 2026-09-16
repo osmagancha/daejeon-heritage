@@ -355,7 +355,7 @@
     const gy = H * (simple ? 0.82 : 0.78);
     const unit = H / (simple ? 7.2 : 8.4);
 
-    let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax slice" role="img" aria-label="${item.name} 일러스트">`;
+    let s = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax slice" role="img" aria-label="${String(item.name || '').replace(/[<>&"]/g, '')} 일러스트">`;
     s += `<defs>
       <linearGradient id="${uid}sky" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0" stop-color="${skyTop}"/><stop offset="1" stop-color="${skyBot}"/>

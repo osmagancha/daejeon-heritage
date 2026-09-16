@@ -5,6 +5,7 @@ const auth = require('./auth');
 const google = require('./google');
 const avatar = require('./avatar');
 const battle = require('./battle');
+const security = require('./security');
 const { HERITAGE, COURSES, BADGES } = require('./seed/heritage');
 const { GOODS, CITY_INTRO, CITY_FEATURES, NOTICES } = require('./seed/city');
 
@@ -13,6 +14,19 @@ const QUIZ_POINTS = 30;
 const REVIEW_POINTS = 20;
 
 const byId = new Map(HERITAGE.map((h) => [h.id, h]));
+
+/** 같은 이름을 쓰는 다른 사람이 있는지. 사칭을 막기 위한 검사다. */
+function nicknameTaken(nickname, exceptId) {
+  const key = security.nicknameKey(nickname);
+  return db.table('users').some((u) => u.id !== exceptId && security.nicknameKey(u.nickname) === key);
+}
+
+/** 관리자가 한 일을 남긴다 */
+function auditLog(by, action, target, detail) {
+  const rows = db.table('adminLogs');
+  rows.push({ id: db.id('al_'), at: Date.now(), by, action, target: target || '', detail: detail || '' });
+  if (rows.length > 500) rows.splice(0, rows.length - 500);
+}
 const goodsById = new Map(GOODS.map((g) => [g.id, g]));
 
 /* ------------------------------------------------------------------ utils */
@@ -199,13 +213,23 @@ on('POST', '/api/auth/register', (ctx) => {
     bad('닉네임은 2~16자로 입력해 주세요.');
   }
   const mail = email.trim().toLowerCase();
+  const clean = security.cleanNickname(nickname);
+  if (clean.length < 2 || clean.length > 16) bad('닉네임은 2~16자로 입력해 주세요.');
+
+  const wait = security.tooMany('reg:' + (ctx.ip || '?'), 20, 10 * 60 * 1000);
+  if (wait) throw new HttpError(429, `가입 시도가 너무 잦습니다. ${wait}초 뒤에 다시 시도해 주세요.`);
+
+  const pwProblem = security.passwordProblem(password, mail, clean);
+  if (pwProblem) bad(pwProblem);
+
   if (db.table('users').some((u) => u.email === mail)) throw new HttpError(409, '이미 가입된 이메일입니다.');
+  if (nicknameTaken(clean)) throw new HttpError(409, '이미 쓰고 있는 이름입니다. 다른 이름을 골라 주세요.');
 
   const { salt, hash } = auth.hashPassword(password);
   const user = {
     id: db.id('u_'),
     email: mail,
-    nickname: nickname.trim(),
+    nickname: clean,
     passwordHash: hash,
     salt,
     points: 100,                       // 가입 축하 포인트
@@ -222,13 +246,14 @@ on('POST', '/api/auth/register', (ctx) => {
 on('POST', '/api/auth/login', (ctx) => {
   const { email, password } = ctx.body || {};
   const mail = String(email || '').trim().toLowerCase();
+  // 잠금 확인과 실패 집계는 serve() 가 이미 마쳤다
   const user = db.table('users').find((u) => u.email === mail);
-  if (user && !user.passwordHash) {
-    throw new HttpError(401, '구글로 가입한 계정입니다. 구글로 계속하기를 눌러 주세요.');
-  }
-  if (!user || !auth.verifyPassword(String(password || ''), user.salt, user.passwordHash)) {
-    throw new HttpError(401, '이메일 또는 비밀번호가 올바르지 않습니다.');
-  }
+  // 계정이 있는지, 구글 가입인지 알려 주지 않는다 (계정 캐내기 방지)
+  const ok = user && user.passwordHash &&
+    auth.verifyPassword(String(password || ''), user.salt, user.passwordHash);
+
+  if (!ok) throw new HttpError(401, '이메일 또는 비밀번호가 올바르지 않습니다.');
+  (ctx.loginKeys || []).forEach((k) => security.loginOk(k));
   const sus = auth.suspension(user);
   if (sus) {
     const until = sus.until ? new Date(sus.until).toLocaleString('ko-KR') + ' 까지' : '해제될 때까지';
@@ -256,14 +281,23 @@ on('POST', '/api/auth/google', async (ctx) => {
   if (!user && profile.email) user = users.find((u) => u.email === profile.email);
 
   if (user) {
+    const sus = auth.suspension(user);
+    if (sus) {
+      const until = sus.until ? new Date(sus.until).toLocaleString('ko-KR') + ' 까지' : '해제될 때까지';
+      throw new HttpError(403, `이용이 정지된 계정입니다 (${until}). 사유: ${sus.reason || '기재 없음'}`);
+    }
     user.googleId = profile.googleId;
     if (profile.picture) user.picture = profile.picture;
   } else {
-    const base = (profile.name || (profile.email || '').split('@')[0] || '여행자').trim();
+    let base = security.cleanNickname(profile.name || (profile.email || '').split('@')[0] || '여행자').slice(0, 16);
+    if (base.length < 2) base = '여행자';
+    // 이름이 겹치면 뒤에 숫자를 붙인다
+    let candidate = base;
+    for (let n = 2; nicknameTaken(candidate); n++) candidate = base.slice(0, 14) + n;
     user = {
       id: db.id('u_'),
       email: profile.email,
-      nickname: base.slice(0, 16) || '여행자',
+      nickname: candidate,
       googleId: profile.googleId,
       picture: profile.picture,
       passwordHash: '',
@@ -292,11 +326,12 @@ on('PATCH', '/api/auth/me', (ctx) => {
   const user = needAuth(ctx.user);
   const { nickname, bio, avatarSeed } = ctx.body || {};
   if (nickname !== undefined) {
-    const n = String(nickname).trim();
+    const n = security.cleanNickname(nickname);
     if (n.length < 2 || n.length > 16) bad('닉네임은 2~16자로 입력해 주세요.');
+    if (nicknameTaken(n, user.id)) throw new HttpError(409, '이미 쓰고 있는 이름입니다.');
     user.nickname = n;
   }
-  if (bio !== undefined) user.bio = String(bio).slice(0, 140);
+  if (bio !== undefined) user.bio = String(bio).replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 140);
   if (avatarSeed !== undefined) user.avatarSeed = Math.abs(parseInt(avatarSeed, 10) || 0) % 360;
   db.save();
   return { user: auth.publicUser(user) };
@@ -367,7 +402,7 @@ on('POST', '/api/reviews', (ctx) => {
   if (!byId.has(heritageId)) bad('알 수 없는 문화유산입니다.');
   const r = Math.round(Number(rating));
   if (!(r >= 1 && r <= 5)) bad('별점은 1~5 사이여야 합니다.');
-  const text = String(body || '').trim();
+  const text = String(body || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim();
   if (text.length < 2) bad('감상을 두 글자 이상 적어 주세요.');
   if (text.length > 500) bad('500자 이내로 적어 주세요.');
 
@@ -1316,8 +1351,9 @@ on('PATCH', '/api/admin/users/:id', (ctx) => {
   numField('gems', 0, 100000, '옥', (v) => { user.gems = v; });
 
   if (b.nickname !== undefined) {
-    const n = String(b.nickname).trim();
+    const n = security.cleanNickname(b.nickname);
     if (n.length < 2 || n.length > 16) bad('이름은 2~16자로 입력해 주세요.');
+    if (nicknameTaken(n, user.id)) throw new HttpError(409, '이미 쓰고 있는 이름입니다.');
     user.nickname = n;
     changed.push(`이름 ${n}`);
   }
@@ -1349,6 +1385,7 @@ on('PATCH', '/api/admin/users/:id', (ctx) => {
   }
 
   if (!changed.length) bad('바꿀 내용이 없습니다.');
+  auditLog(me.nickname, '계정 수정', user.nickname, changed.join(', '));
   db.save();
   return { ok: true, user: adminUserRow(user), changed, by: me.nickname };
 });
@@ -1379,6 +1416,8 @@ on('POST', '/api/admin/users/:id/suspend', (ctx) => {
   for (let i = sessions.length - 1; i >= 0; i--) {
     if (sessions[i].userId === user.id) sessions.splice(i, 1);
   }
+  auditLog(me.nickname, '이용 정지', user.nickname,
+    (days === null ? '무기한' : days + '일') + (reason ? ' · ' + reason : ''));
   db.save();
   return { ok: true, nickname: user.nickname, suspended: user.suspended };
 });
@@ -1427,6 +1466,7 @@ on('DELETE', '/api/admin/users/:id', (ctx) => {
 
   const nickname = user.nickname;
   const removed = purgeUser(user.id);
+  auditLog(me.nickname, '계정 삭제', nickname, '');
   db.save();
   return { ok: true, nickname, removed };
 });
@@ -1493,7 +1533,28 @@ on('GET', '/api/admin/heritage', (ctx) => {
  * 저장소가 요청 단위로 최신 상태를 읽고 쓰도록 감싼다.
  * 로그인 사용자 판별도 그 안에서 해야 최신 세션을 본다.
  */
-function serve(method, pathname, ctx) {
+async function serve(method, pathname, ctx) {
+  // 로그인 실패는 예외를 던지고, 예외가 나면 그 요청의 변경은 통째로 되돌아간다.
+  // 실패 횟수는 그래도 남아야 하므로 본 처리에 들어가기 전에 따로 확정해 둔다.
+  if (method === 'POST' && pathname === '/api/auth/login') {
+    const keys = [
+      String((ctx.body || {}).email || '').trim().toLowerCase(),
+      'ip:' + (ctx.ip || '?')
+    ];
+    const locked = await db.runRequest(true, () => {
+      for (const k of keys) {
+        const left = security.loginLocked(k);
+        if (left) return left;
+      }
+      keys.forEach((k) => security.loginFailed(k));   // 일단 실패로 세어 두고
+      return 0;
+    });
+    if (locked) {
+      throw new HttpError(429, `로그인 시도가 너무 많습니다. ${locked}초 뒤에 다시 시도해 주세요.`);
+    }
+    ctx.loginKeys = keys;                              // 성공하면 아래에서 지운다
+  }
+
   const mutating = method !== 'GET';
   return db.runRequest(mutating, () => {
     ctx.user = auth.userFromToken(ctx.token);
