@@ -244,6 +244,12 @@
             <div class="forge-line"><span>드는 비용</span><b>${num(e.cost)}P</b></div>
             <div class="forge-line"><span>실패하면</span><b>${w.plus >= e.dropFrom ? '한 단계 내려갑니다' : '그대로입니다'}</b></div>
             <div class="forge-line"><span>가진 부적</span><b>${d.charms}장 ${d.charms ? '(성공률 +15%)' : ''}</b></div>
+            <div class="forge-line"><span>가진 보호권</span><b>${d.guards}장 ${d.guards ? '(내려가는 것을 막습니다)' : '(옥 상점에서 삽니다)'}</b></div>
+            ${w.plus >= e.dropFrom ? `
+              <label class="forge-guard ${d.guards ? '' : 'off'}">
+                <input type="checkbox" id="use-guard" ${d.guards ? 'checked' : 'disabled'} />
+                <span>보호권 쓰기 — 실패해도 +${w.plus} 을 지킵니다${d.guards ? '' : ' (없음)'}</span>
+              </label>` : ''}
             <div class="btn-row">
               <button class="btn red" style="flex:2" data-act="enhance">강화하기</button>
               <button class="btn soft" data-act="enhance-charm" ${d.charms ? '' : 'disabled'}>부적 쓰기</button>

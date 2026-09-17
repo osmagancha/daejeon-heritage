@@ -140,19 +140,29 @@ const RULE_LABEL = {
  * 횟수만큼 다음 확률이 조금씩 올라간다(공덕이 쌓인다).
  */
 
-/** 이 단계에서 다음으로 오를 기본 확률 */
+/**
+ * 이 단계에서 다음으로 오를 기본 확률.
+ * 앞자리는 술술 오르고 뒤로 갈수록 가파르게 떨어져, 마지막 29 → 30 단계는 0.5% 다.
+ *
+ *   1→2 95%   8→9 68%   12→13 42%   16→17 21%   20→21 8.5%   24→25 2.8%   29→30 0.5%
+ */
+const RISE_END = 0.005;
+
 function riseRate(level) {
-  const r = 0.95 * Math.pow(0.955, level - 1);
-  return Math.max(0.15, Math.round(r * 1000) / 1000);
+  const t = (level - 1) / (STAGES.length - 2);
+  return Math.max(RISE_END, Math.round(0.95 * Math.pow(RISE_END / 0.95, t * t) * 10000) / 10000);
 }
 
-/** 한 번 도전하는 데 드는 포인트 */
+/**
+ * 한 번 도전하는 데 드는 포인트.
+ * 위로 갈수록 확률은 떨어지고 값은 오른다. need 간격에 0.5 → 2.0 배를 매긴다.
+ */
 function riseCost(level) {
   const cur = STAGES[level - 1];
   const next = STAGES[level];
   if (!cur || !next) return null;
-  // 확률을 곱해 둔다 → 한 단계에 드는 포인트의 기댓값이 need 간격과 같아진다
-  return Math.max(10, Math.round((next.need - cur.need) * riseRate(level)));
+  const t = (level - 1) / (STAGES.length - 2);
+  return Math.max(20, Math.round((next.need - cur.need) * (0.5 + 1.5 * t) / 10) * 10);
 }
 
 const RISE_BONUS = 0.03;       // 한 번 실패할 때마다 오르는 몫

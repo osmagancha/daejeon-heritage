@@ -561,16 +561,22 @@
     else if (a === 'battle-again') { UI.setFight(null); UI.setBattle('arena'); UI.openView('battle'); }
     else if (a === 'enhance' || a === 'enhance-charm') {
       try {
-        const r = await API.post('/battle/enhance', { charm: a === 'enhance-charm' });
+        const guardBox = document.getElementById('use-guard');
+        const r = await API.post('/battle/enhance', {
+          charm: a === 'enhance-charm',
+          guard: !!(guardBox && guardBox.checked && !guardBox.disabled)
+        });
         const box = document.getElementById('forge-result');
         if (box) {
           box.innerHTML = `<div class="forge-msg ${r.ok ? 'ok' : (r.dropped ? 'drop' : 'fail')}">
             ${r.ok ? `+${r.before} → <b>+${r.after}</b> 성공했습니다`
+                   : (r.guarded ? `실패했지만 보호권이 막았습니다. <b>+${r.after}</b> 그대로입니다 (남은 보호권 ${r.guards}장)`
                    : (r.dropped ? `실패했습니다. +${r.before} → <b>+${r.after}</b> 로 내려갔습니다`
-                                : `실패했습니다. +${r.before} 그대로입니다`)}
+                                : `실패했습니다. +${r.before} 그대로입니다`))}
           </div>`;
         }
-        UI.toast(r.ok ? `강화 성공! +${r.after}` : '강화 실패', r.ok ? '✨' : '💢');
+        UI.toast(r.ok ? `강화 성공! +${r.after}` : (r.guarded ? '보호권이 막았습니다' : '강화 실패'),
+                 r.ok ? '✨' : (r.guarded ? '🛡️' : '💢'));
         await Store.refreshMe();
         setTimeout(() => { UI.setBattle('forge'); UI.openView('battle'); }, 900);
         syncAll();

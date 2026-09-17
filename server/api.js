@@ -737,6 +737,7 @@ const GEM_PER_STREAK = 3;        // 몇 연승마다 옥 하나
 const RESET_STAT_POINTS = 3000;
 const RESET_STAT_GEMS = 5;
 const CHARM_GEMS = 3;            // 강화 부적 한 장
+const GUARD_GEMS = 4;            // 강화 보호권 한 장
 const EXTRA_BATTLE_GEMS = 2;     // 대전 5회 추가
 
 function blankBattle() {
@@ -744,7 +745,7 @@ function blankBattle() {
     stats: { str: 0, agi: 0, vit: 0, spi: 0 },
     weapon: 'mokgeom', plus: 0, owned: ['mokgeom'],
     rating: battle.BASE_RATING, wins: 0, losses: 0, draws: 0,
-    streak: 0, bestStreak: 0, day: null, count: 0, extra: 0, charms: 0
+    streak: 0, bestStreak: 0, day: null, count: 0, extra: 0, charms: 0, guards: 0
   };
 }
 
@@ -754,6 +755,7 @@ function battleOf(user) {
   const b = user.battle;
   if (!b.owned || !b.owned.length) b.owned = ['mokgeom'];
   if (b.gems !== undefined) delete b.gems;
+  if (b.guards == null) b.guards = 0;
   if (user.gems == null) user.gems = 0;
   const today = todayKey(Date.now());
   if (b.day !== today) { b.day = today; b.count = 0; b.extra = 0; }
@@ -810,6 +812,7 @@ function battleProfile(user) {
     weapon: { ...battle.weaponOf(b.weapon), plus: b.plus },
     owned: b.owned,
     charms: b.charms || 0,
+    guards: b.guards || 0,
     enhance: {
       max: battle.MAX_ENHANCE,
       cost: b.plus >= battle.MAX_ENHANCE ? null : battle.enhanceCost(battle.weaponOf(b.weapon), b.plus),
@@ -924,8 +927,11 @@ on('POST', '/api/battle/enhance', (ctx) => {
   const cost = battle.enhanceCost(w, b.plus);
   if ((user.points || 0) < cost) throw new HttpError(402, `포인트가 ${(cost - (user.points || 0)).toLocaleString()}P 부족합니다.`);
 
-  const useCharm = !!(ctx.body || {}).charm;
+  const body = ctx.body || {};
+  const useCharm = !!body.charm;
   if (useCharm && (b.charms || 0) < 1) throw new HttpError(400, '부적이 없습니다.');
+  // 보호권은 실제로 떨어질 뻔한 순간에만 쓰인다. 미리 빼앗지 않는다.
+  const wantGuard = !!body.guard && (b.guards || 0) > 0;
 
   user.points -= cost;
   let rate = battle.enhanceRate(b.plus);
@@ -934,13 +940,20 @@ on('POST', '/api/battle/enhance', (ctx) => {
   const before = b.plus;
   const ok = Math.random() < rate;
   let dropped = false;
-  if (ok) b.plus += 1;
-  else if (before >= battle.ENHANCE_DROP_FROM) { b.plus = before - 1; dropped = true; }
+  let guarded = false;
+
+  if (ok) {
+    b.plus += 1;
+  } else if (before >= battle.ENHANCE_DROP_FROM) {
+    if (wantGuard) { b.guards -= 1; guarded = true; }   // 막았다
+    else { b.plus = before - 1; dropped = true; }
+  }
 
   db.save();
   return {
-    ok, dropped, before, after: b.plus, cost,
+    ok, dropped, guarded, before, after: b.plus, cost,
     rate: Math.round(rate * 1000) / 10,
+    guards: b.guards || 0,
     profile: battleProfile(user)
   };
 });
@@ -1114,6 +1127,7 @@ on('GET', '/api/battle/ranking', (ctx) => {
 
 const GEM_USES = [
   { key: 'charm',  name: '강화 부적', gems: CHARM_GEMS,        desc: '다음 강화 성공률이 15% 오릅니다.' },
+  { key: 'guard',  name: '강화 보호권', gems: GUARD_GEMS,       desc: '5강 이상에서 실패해도 단계가 내려가지 않습니다. 한 번 막고 사라집니다.' },
   { key: 'extra',  name: '겨루기 5회', gems: EXTRA_BATTLE_GEMS, desc: '오늘 겨룰 수 있는 횟수를 5회 늘립니다.' },
   { key: 'respec', name: '스탯 초기화', gems: RESET_STAT_GEMS,  desc: '올린 스탯을 모두 되돌립니다.' }
 ];
@@ -1146,6 +1160,7 @@ on('POST', '/api/shop/gems/use', (ctx) => {
   if ((user.gems || 0) < use.gems) throw new HttpError(402, `옥이 ${use.gems - (user.gems || 0)}개 부족합니다.`);
 
   if (use.key === 'charm') b.charms = (b.charms || 0) + 1;
+  else if (use.key === 'guard') b.guards = (b.guards || 0) + 1;
   else if (use.key === 'extra') b.extra = (b.extra || 0) + 5;
   else if (use.key === 'respec') b.stats = { str: 0, agi: 0, vit: 0, spi: 0 };
 

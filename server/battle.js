@@ -56,13 +56,27 @@ const WEAPONS = [
 /* ─────────────────────────── 강화 ─────────────────────────── */
 
 const MAX_ENHANCE = 10;
-/** +0 에서 +1 로 갈 확률부터 차례로 */
-const ENHANCE_RATE = [0.95, 0.90, 0.84, 0.76, 0.66, 0.55, 0.44, 0.34, 0.25, 0.17];
-/** 5강부터는 실패하면 한 단계 떨어진다. 부서지지는 않는다. */
+
+/**
+ * 강화 확률. 앞자리는 넉넉하고 뒤로 갈수록 가파르게 떨어져
+ * 마지막 +9 → +10 은 0.5% 다. 마지막 한 칸은 전설이라는 뜻이다.
+ *
+ *   +0→1 95%   +3→4 53%   +6→7 9.2%   +9→10 0.5%
+ */
+const ENHANCE_END = 0.005;
+const ENHANCE_RATE = Array.from({ length: MAX_ENHANCE }, (_, i) => {
+  const t = i / (MAX_ENHANCE - 1);
+  return Math.max(ENHANCE_END, Math.round(0.95 * Math.pow(ENHANCE_END / 0.95, t * t) * 10000) / 10000);
+});
+
+/**
+ * 5강부터는 실패하면 한 단계 떨어진다. 부서지지는 않는다.
+ * 떨어지는 것을 막고 싶으면 보호권을 쓴다(옥으로 산다).
+ */
 const ENHANCE_DROP_FROM = 5;
 
 function enhanceCost(weapon, from) {
-  return Math.round((120 + weapon.price * 0.10) * Math.pow(from + 1, 1.55));
+  return Math.round((240 + weapon.price * 0.10) * Math.pow(from + 1, 1.6));
 }
 
 function enhanceRate(from) {
